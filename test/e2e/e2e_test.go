@@ -246,3 +246,55 @@ func TestRecoversAfterContainerRemovedBehindItsBack(t *testing.T) {
 		t.Errorf("could not recover from a removed container:\n%s", out)
 	}
 }
+
+// Every command must see the built workspace, not just `build`.
+//
+// The realistic shape of this: you build once, then start nodes from several
+// terminals. Each of those is a separate `docker exec`, and if the workspace
+// overlay were sourced only during a build, every one of them would report
+// "package not found" for code that is plainly built and sitting right there.
+//
+// It works because the shim sources install/setup.bash on EVERY exec, and
+// checks for it at exec time rather than at container start -- so a container
+// created before the first build still picks it up afterwards.
+func TestOverlayIsSourcedInEveryTerminalNotJustBuild(t *testing.T) {
+	ws := workspace(t)
+	run(t, ws, "pkg", "create", "--build-type", "ament_python",
+		"--node-name", "my_node", "my_pkg")
+
+	// Start the container BEFORE anything is built, so install/ does not exist
+	// when it is created. A shim that looked only at container-start time would
+	// never see the overlay appear.
+	run(t, ws, "up")
+	if _, err := os.Stat(filepath.Join(ws, "install")); err == nil {
+		t.Fatal("install/ exists before the first build; the test proves nothing")
+	}
+
+	run(t, ws, "build")
+
+	// A fresh exec: a different terminal, as far as the container is concerned.
+	if out := run(t, ws, "run", "my_pkg", "my_node"); !strings.Contains(out, "Hi from my_pkg") {
+		t.Fatalf("a new terminal could not run freshly built code:\n%s", out)
+	}
+
+	// And the overlay is genuinely in the environment, not just working by luck.
+	env := run(t, ws, "shell", "-c", "echo $AMENT_PREFIX_PATH")
+	if !strings.Contains(env, "/ros2_ws/install") {
+		t.Errorf("AMENT_PREFIX_PATH does not include the workspace overlay: %s", env)
+	}
+
+	// A package added to an ALREADY RUNNING container must also be visible,
+	// without a recreate: the source lives on the host bind mount, so nothing
+	// about the container needs to change.
+	run(t, ws, "pkg", "create", "--build-type", "ament_python",
+		"--node-name", "n2", "second_pkg")
+	run(t, ws, "build")
+
+	if out := run(t, ws, "run", "second_pkg", "n2"); !strings.Contains(out, "Hi from second_pkg") {
+		t.Fatalf("a package added after the container started is not visible:\n%s", out)
+	}
+	if pkgs := run(t, ws, "pkg", "list"); !strings.Contains(pkgs, "my_pkg") ||
+		!strings.Contains(pkgs, "second_pkg") {
+		t.Error("both packages should be on the path in a fresh exec")
+	}
+}
