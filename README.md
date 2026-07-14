@@ -8,7 +8,7 @@ without installing ROS on the Pi.
 > **Early, but the core works.** Building and running ROS 2 packages is verified
 > on a real Pi 4, and `ros2pi check` tells you what your Pi needs and how to fix
 > it. There are no releases yet, and it has only ever run on one person's
-> hardware — [Status](#status) says exactly what that means.
+> hardware — see [Status](#status) for what is proven and what is not.
 
 ## Why this exists
 
@@ -191,15 +191,6 @@ Getting it wrong is why so much advice on the internet says to use
 What has **not** been proven: actually toggling a pin. Nothing has been wired to
 this Pi. If you have an LED and five minutes, that is the single most useful
 thing you could contribute.
-
-### The fine print
-
-Every **works** above means verified on one Raspberry Pi 4 Model B Rev 1.5,
-running Debian 13, by one person. Nobody else has run this. No Pi 5 ever has
-either — Pi 5 support is written from documentation and tested against synthetic
-fixtures, so it may be wrong. I2C and SPI are disabled on that Pi, which is why
-only the "it's not enabled, here's how to fix it" path has been exercised, never
-the working one.
 
 ## Design notes
 
