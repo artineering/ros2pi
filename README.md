@@ -3,44 +3,13 @@
 [![build](https://github.com/artineering/ros2pi/actions/workflows/build.yml/badge.svg)](https://github.com/artineering/ros2pi/actions/workflows/build.yml)
 
 Run ROS 2 on a Raspberry Pi — including its GPIO, I2C, SPI and serial hardware —
-without installing ROS on the Pi.
+without installing ROS on the Pi. It works out what your Pi actually is and
+writes the `docker` command for you, so your nodes don't need `--privileged`.
 
 > **Early, but the core works.** Building and running ROS 2 packages is verified
 > on a real Pi 4, and `ros2pi check` tells you what your Pi needs and how to fix
 > it. There are no releases yet, and it has only ever run on one person's
 > hardware — see [Status](#status) for what is proven and what is not.
-
-## Why this exists
-
-Running ROS 2 on a Pi means running it in a container. That is not a workaround —
-it is the upstream recommendation. Raspberry Pi OS is Debian, which
-[REP 2000](https://reps.openrobotics.org/rep-2000/) rates **Tier 3** ("community
-reports indicate that the release is functional. The development team does not
-run the unit test suite or perform any other tests"). `arm64` Ubuntu containers
-are **Tier 1**. ROS 2's own installation guide for the Raspberry Pi says as much.
-
-So you reach for Docker, and then you hit the real problem: the container needs
-to be told about your Pi, and getting that wrong fails in ways that actively
-mislead you.
-
-- Your workspace fills with **root-owned files** you can't edit, because the ROS
-  image runs as root and `--user` was omitted.
-- A device is **listed in the container and still refused when you open it**
-  (`EPERM`), because the Pi's `gpio`/`i2c`/`spi` groups are allocated dynamically
-  and don't exist inside the image, so `--group-add gpio` silently grants
-  nothing.
-- `i2cdetect` finds **nothing on a bus that exists**, because `dtparam=i2c_arm`
-  was never enabled — a firmware setting no container can fix.
-- Your code targets `gpiochip4` per a Pi 5 tutorial and breaks, because
-  **kernel 6.6.47 moved it back to `gpiochip0`**.
-
-The usual advice is to paste `--privileged` and move on. That works, and it means
-your robot's nodes run with full access to the host — any bug in any node can
-reach the whole machine.
-
-ros2pi probes the host, works out what is actually true about *your* Pi, and
-constructs the right `docker` invocation — including the fine-grained device and
-group flags that make `--privileged` unnecessary.
 
 ## Requirements
 
@@ -83,7 +52,7 @@ go build -o ~/.local/bin/ros2pi ./cmd/ros2pi
 If `ros2pi` isn't found afterwards, `~/.local/bin` isn't on your `PATH` — add it,
 or run the binary by its full path.
 
-Then, in a new or existing workspace:
+Then make a workspace and run a node in it:
 
 ```bash
 mkdir -p ~/my_project && cd ~/my_project
@@ -94,6 +63,39 @@ ros2pi build
 ros2pi run my_pkg my_node        # -> Hi from my_pkg.
 ```
 
+The first run pulls `ros:jazzy` (about 1.3 GB) and takes a few minutes. After
+that the container stays up, so commands are quick.
+
+## How you work
+
+`ros2pi init` gives you an ordinary ROS 2 workspace — the same layout colcon and
+every tutorial expect:
+
+```
+~/my_project/
+  ros2pi.toml            which ROS image to use, and which hardware you want
+  src/                   your packages live here
+  build/ install/ log/   colcon's output (init gitignores these for you)
+```
+
+Your code stays on the Pi, in your own home directory. The workspace is
+bind-mounted into the container at `/ros2_ws`, and the container runs as *you*
+rather than root, so everything under `src/` stays editable from your normal
+editor. Nothing you write lives inside the container.
+
+The day-to-day loop is just edit, build, run:
+
+```bash
+# edit src/my_pkg/my_pkg/my_node.py in whatever editor you like
+ros2pi build
+ros2pi run my_pkg my_node
+```
+
+Builds pass `--symlink-install` by default, so editing an existing Python file
+does **not** need a rebuild — just `ros2pi run` again and your change is live.
+Rebuild when you add a new file, change `setup.py` or `package.xml`, or write
+C++.
+
 Anything ROS 2 understands is passed straight through, so the tool you already
 know still works:
 
@@ -103,10 +105,31 @@ ros2pi launch my_pkg my_launch.py
 ros2pi node info /my_node
 ```
 
-The first run pulls `ros:jazzy` (about 1.3 GB) and takes a few minutes. After
-that the container stays up, so commands are quick.
+Every command lands in the same container, so once you have a node that stays up,
+a second terminal can inspect it while it runs. (The node `pkg create` generates
+for you isn't one of those — it prints `Hi from my_pkg.` and exits. That's the
+template, not a fault.)
 
-To see what it would do without doing it, add `--dry-run`.
+`ros2pi down` stops the container when you're done; `ros2pi shell` drops you
+inside it if you want to poke around. To see what any command *would* do without
+doing it, add `--dry-run`.
+
+One thing worth knowing: `build/`, `install/` and `log/` sit on the Pi but hold
+binaries linked against the *container's* ROS. They will not run on the host,
+which is why `init` gitignores them.
+
+### Adding dependencies
+
+Declare them in `package.xml` as usual, then:
+
+```bash
+ros2pi image build
+```
+
+That reads every `package.xml` under `src/`, lets rosdep resolve them, and bakes
+them into an image for this workspace. Installing them into a running container
+instead would work right up until the container was recreated, and then quietly
+lose them.
 
 ### When something is wrong
 
@@ -141,19 +164,6 @@ Hardware
 warnings too. `--dump-facts` still prints the raw JSON, which is what to attach
 to a bug report — it describes your hardware, including your local username, so
 read it before you post it.
-
-### Dependencies
-
-Declare them in `package.xml` as usual, then:
-
-```bash
-ros2pi image build
-```
-
-That reads every `package.xml` under `src/`, lets rosdep resolve them, and bakes
-them into an image for this workspace. Installing them into a running container
-instead would work right up until the container was recreated, and then quietly
-lose them.
 
 ## Status
 
@@ -191,6 +201,47 @@ Getting it wrong is why so much advice on the internet says to use
 What has **not** been proven: actually toggling a pin. Nothing has been wired to
 this Pi. If you have an LED and five minutes, that is the single most useful
 thing you could contribute.
+
+## Why this exists
+
+Running ROS 2 on a Pi means running it in a container. That is not a workaround —
+it is the upstream recommendation, because Raspberry Pi OS is Debian (a Tier 3
+ROS platform) while `arm64` Ubuntu containers are Tier 1.
+
+The hard part is telling the container about your Pi, and getting it wrong fails
+in ways that actively mislead you: root-owned files you can't edit, devices that
+are listed in the container but refuse to open, buses that look healthy but were
+never enabled. The usual advice is to paste `--privileged` and move on. That
+works, and it means your robot's nodes run with full access to the host — any bug
+in any node can reach the whole machine.
+
+ros2pi probes the host, works out what is actually true about *your* Pi, and
+constructs the right `docker` invocation — including the fine-grained device and
+group flags that make `--privileged` unnecessary.
+
+<details>
+<summary><b>The specifics, if you've hit this before</b></summary>
+
+[REP 2000](https://reps.openrobotics.org/rep-2000/) rates Debian **Tier 3**
+("community reports indicate that the release is functional. The development team
+does not run the unit test suite or perform any other tests"). `arm64` Ubuntu
+containers are **Tier 1**. ROS 2's own installation guide for the Raspberry Pi
+says as much.
+
+The four ways the container-flags problem bites:
+
+- Your workspace fills with **root-owned files** you can't edit, because the ROS
+  image runs as root and `--user` was omitted.
+- A device is **listed in the container and still refused when you open it**
+  (`EPERM`), because the Pi's `gpio`/`i2c`/`spi` groups are allocated dynamically
+  and don't exist inside the image, so `--group-add gpio` silently grants
+  nothing.
+- `i2cdetect` finds **nothing on a bus that exists**, because `dtparam=i2c_arm`
+  was never enabled — a firmware setting no container can fix.
+- Your code targets `gpiochip4` per a Pi 5 tutorial and breaks, because
+  **kernel 6.6.47 moved it back to `gpiochip0`**.
+
+</details>
 
 ## Design notes
 
