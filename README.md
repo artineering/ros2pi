@@ -5,14 +5,10 @@
 Run ROS 2 on a Raspberry Pi — including its GPIO, I2C, SPI and serial hardware —
 without installing ROS on the Pi.
 
-> **Status: early, but the core works.**
->
-> Building and running ROS 2 packages works today, and has been verified on a
-> real Pi 4. `ros2pi check` diagnoses the Pi and tells you how to fix what it
-> finds. Hardware access works for GPIO and is unverified for everything else.
->
-> There are no releases yet, and nobody but the author has run this. See
-> [Status](#status) for exactly what is proven and what is not.
+> **Early, but the core works.** Building and running ROS 2 packages is verified
+> on a real Pi 4, and `ros2pi check` tells you what your Pi needs and how to fix
+> it. There are no releases yet, and it has only ever run on one person's
+> hardware — [Status](#status) says exactly what that means.
 
 ## Why this exists
 
@@ -29,74 +25,35 @@ mislead you.
 
 - Your workspace fills with **root-owned files** you can't edit, because the ROS
   image runs as root and `--user` was omitted.
-- A device is **listed in the container and `open()` still returns EPERM**,
-  because the Pi's `gpio`/`i2c`/`spi` groups are allocated dynamically and don't
-  exist inside the image, so `--group-add gpio` silently grants nothing.
+- A device is **listed in the container and still refused when you open it**
+  (`EPERM`), because the Pi's `gpio`/`i2c`/`spi` groups are allocated dynamically
+  and don't exist inside the image, so `--group-add gpio` silently grants
+  nothing.
 - `i2cdetect` finds **nothing on a bus that exists**, because `dtparam=i2c_arm`
   was never enabled — a firmware setting no container can fix.
 - Your code targets `gpiochip4` per a Pi 5 tutorial and breaks, because
   **kernel 6.6.47 moved it back to `gpiochip0`**.
 
 The usual advice is to paste `--privileged` and move on. That works, and it means
-your robot's nodes run with full access to the host.
+your robot's nodes run with full access to the host — any bug in any node can
+reach the whole machine.
 
-ros2pi's plan is to probe the host, work out what is actually true about *your*
-Pi, and construct the right `docker` invocation — including the fine-grained
-device and group flags that make `--privileged` unnecessary.
-
-## Status
-
-| What | State |
-|---|---|
-| Reading the Pi's hardware | **works** — verified on a Pi 4 |
-| `init` / `up` / `down` / `build` / `shell` | **works** — verified on a Pi 4 |
-| Passing commands to `ros2` | **works** — verified on a Pi 4 |
-| GPIO access | **works** — see below for exactly what that means |
-| I2C / SPI | code exists; the *refusal* path is verified, the working path is not |
-| UART / USB serial | code exists, never run |
-| `ros2pi check` report | **works** — readable diagnosis with a fix for every problem |
-| `ros2pi image build` | **works** — bakes package.xml deps into an image so they survive |
-| Camera | not started |
-| Releases / install script | not started |
-
-105 tests, none of which need a Pi or Docker to run. CI builds and tests on real
-arm64 hardware for every commit.
-
-### What "GPIO works" means, precisely
-
-A container started by ros2pi can open `/dev/gpiochip0` and read it, running as
-an ordinary non-root user, with no `--privileged`:
-
-```
-running as: ubuntu uid=1000 groups=1000 986
-OPENED gpiochip0 [pinctrl-bcm2711] 58 lines
-```
-
-That is the part everyone else gets wrong — group 986 is this Pi's `gpio` group,
-which does not exist inside the ROS image, so it has to be passed as a number.
-Getting it wrong is why so much advice on the internet says to use
-`--privileged`.
-
-What has **not** been proven: actually toggling a pin. Nothing has been wired to
-this Pi. If you have an LED and five minutes, that is the single most useful
-thing you could contribute.
-
-### What is not proven at all
-
-- **No Pi 5 has ever run this.** Pi 5 support is written from documentation and
-  tested against synthetic fixtures. It may be wrong.
-- **I2C and SPI are disabled on the author's Pi**, so only the "it's not enabled,
-  here's how to fix it" path has been exercised — never the working one.
-- **Nobody else has run this.** Every "verified" above means verified on one
-  Raspberry Pi 4 Model B Rev 1.5, running Debian 13, by one person.
+ros2pi probes the host, works out what is actually true about *your* Pi, and
+constructs the right `docker` invocation — including the fine-grained device and
+group flags that make `--privileged` unnecessary.
 
 ## Requirements
 
 - A Raspberry Pi 3, 4, 5, Zero 2 W, or CM3/4/5
 - **64-bit** Raspberry Pi OS (Debian 12 or 13)
 - Docker
+- Go 1.25+ to build from source. On Debian 13, `sudo apt install golang-go` gives
+  1.24 and Go fetches the 1.25 toolchain it needs by itself — nothing else to do.
+  Debian 12's `apt` Go is 1.19, too old to do that (the mechanism needs 1.21+),
+  so take Go from [go.dev/dl](https://go.dev/dl/) or `bookworm-backports`.
 
-### arm64 only — and that is not our choice
+<details>
+<summary><b>Why 64-bit only</b></summary>
 
 32-bit Raspberry Pi OS cannot run ROS 2 in a container, regardless of this tool:
 
@@ -111,6 +68,8 @@ If you're on 32-bit Pi OS and your board is a Pi 3 or newer, reflashing with the
 64-bit image is the fix. Pi 1 and Pi Zero/Zero W are ARMv6 and cannot run 64-bit
 at all.
 
+</details>
+
 ## Try it
 
 There are no releases yet. Build from source:
@@ -121,8 +80,8 @@ cd ros2pi
 go build -o ~/.local/bin/ros2pi ./cmd/ros2pi
 ```
 
-Needs Go 1.25+. If your `apt` Go is older, the Go toolchain downloads the right
-version automatically — no action needed.
+If `ros2pi` isn't found afterwards, `~/.local/bin` isn't on your `PATH` — add it,
+or run the binary by its full path.
 
 Then, in a new or existing workspace:
 
@@ -195,18 +154,65 @@ them into an image for this workspace. Installing them into a running container
 instead would work right up until the container was recreated, and then quietly
 lose them.
 
-## Help wanted: send us your Pi
+## Status
 
-The hardest problem with a tool like this is that we can only test it on the
-hardware we own. So `--dump-facts` exists to fix that:
+| What | State |
+|---|---|
+| Reading the Pi's hardware | **works** — verified on a Pi 4 |
+| `init` / `up` / `down` / `build` / `shell` | **works** — verified on a Pi 4 |
+| Passing commands to `ros2` | **works** — verified on a Pi 4 |
+| GPIO access | **works** — see below for exactly what that means |
+| `ros2pi check` report | **works** — readable diagnosis with a fix for every problem |
+| `ros2pi image build` | **works** — bakes package.xml deps into an image so they survive |
+| I2C / SPI | code exists; the *refusal* path is verified, the working path is not |
+| UART / USB serial | code exists, never run |
+| Camera | not started |
+| Releases / install script | not started |
+
+105 tests, none of which need a Pi or Docker to run. CI builds and tests on real
+arm64 hardware for every commit.
+
+### What "GPIO works" means, precisely
+
+A container started by ros2pi can open `/dev/gpiochip0` and read it, running as
+an ordinary non-root user, with no `--privileged`:
+
+```
+running as: ubuntu uid=1000 groups=1000 986
+OPENED gpiochip0 [pinctrl-bcm2711] 58 lines
+```
+
+That is the part everyone else gets wrong — group 986 is this Pi's `gpio` group,
+which does not exist inside the ROS image, so it has to be passed as a number.
+Getting it wrong is why so much advice on the internet says to use
+`--privileged`.
+
+What has **not** been proven: actually toggling a pin. Nothing has been wired to
+this Pi. If you have an LED and five minutes, that is the single most useful
+thing you could contribute.
+
+### The fine print
+
+Every **works** above means verified on one Raspberry Pi 4 Model B Rev 1.5,
+running Debian 13, by one person. Nobody else has run this. No Pi 5 ever has
+either — Pi 5 support is written from documentation and tested against synthetic
+fixtures, so it may be wrong. I2C and SPI are disabled on that Pi, which is why
+only the "it's not enabled, here's how to fix it" path has been exercised, never
+the working one.
+
+## Help wanted: send us your Pi (as JSON)
+
+The hardest problem with a tool like this is that I can only test it on the
+hardware I own. So `--dump-facts` exists to fix that:
 
 ```bash
-./ros2pi check --dump-facts > my-pi.json
+ros2pi check --dump-facts > my-pi.json
 ```
 
 **Please open an issue and attach that file** — especially if you have a **Pi 5**,
-a Compute Module, or anything unusual. Every fixture we receive becomes a
-permanent regression test, and a maintainer can replay your exact host:
+a Compute Module, or anything unusual. A Pi 5 is the most valuable of all, since
+no real one has ever run this. Every fixture becomes a permanent regression test,
+and I can replay your exact host:
 
 ```bash
 ROS2PI_FACTS=my-pi.json ros2pi check --dump-facts
@@ -214,10 +220,6 @@ ROS2PI_FACTS=my-pi.json ros2pi check --dump-facts
 
 It contains a hardware description — model, kernel, device nodes, group IDs, your
 local username. No keys or secrets. Read it before you post it.
-
-**Pi 5 support is written but has never run on a real Pi 5.** It is modelled from
-documentation and tested against synthetic fixtures. If you have one, you are the
-person who can tell us whether we got it right.
 
 ## Design notes
 
