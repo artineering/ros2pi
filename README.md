@@ -1,12 +1,18 @@
 # ros2pi
 
+[![build](https://github.com/artineering/ros2pi/actions/workflows/build.yml/badge.svg)](https://github.com/artineering/ros2pi/actions/workflows/build.yml)
+
 Run ROS 2 on a Raspberry Pi — including its GPIO, I2C, SPI and serial hardware —
 without installing ROS on the Pi.
 
-> **Status: early development. Not usable yet.**
-> Only `ros2pi check --dump-facts` exists today, and it prints JSON. There is no
-> working `run`, `build` or `shell` yet. See [Status](#status) for what is real
-> and what is not. Watch or star if you want to know when it becomes useful.
+> **Status: early, but the core works.**
+>
+> Building and running ROS 2 packages works today, and has been verified on a
+> real Pi 4. Hardware access works for GPIO and is unverified for everything
+> else. `ros2pi check` still only prints raw JSON.
+>
+> There are no releases yet, and nobody but the author has run this. See
+> [Status](#status) for exactly what is proven and what is not.
 
 ## Why this exists
 
@@ -40,17 +46,48 @@ device and group flags that make `--privileged` unnecessary.
 
 ## Status
 
-| Milestone | What | State |
-|---|---|---|
-| **M0** | Host probing (`HostFacts`) | **done** — this is what's in the repo |
-| M1 | `init` / `build` / `shell` + `ros2` passthrough | not started |
-| M2 | `check` — human-readable diagnosis | not started |
-| M3 | GPIO / I2C / SPI / UART / USB passthrough | not started |
-| M4 | Release binaries, install script | not started |
+| What | State |
+|---|---|
+| Reading the Pi's hardware | **works** — verified on a Pi 4 |
+| `init` / `up` / `down` / `build` / `shell` | **works** — verified on a Pi 4 |
+| Passing commands to `ros2` | **works** — verified on a Pi 4 |
+| GPIO access | **works** — see below for exactly what that means |
+| I2C / SPI | code exists; the *refusal* path is verified, the working path is not |
+| UART / USB serial | code exists, never run |
+| `ros2pi check` report | **not started** — only `--dump-facts` (raw JSON) |
+| Camera | not started |
+| Releases / install script | not started |
 
-M0 is the foundation the rest rests on: everything the tool will do is a function
-of what it can learn about the host, so that came first. 64 tests, no hardware
-required to run them.
+93 tests, none of which need a Pi or Docker to run. CI builds and tests on real
+arm64 hardware for every commit.
+
+### What "GPIO works" means, precisely
+
+A container started by ros2pi can open `/dev/gpiochip0` and read it, running as
+an ordinary non-root user, with no `--privileged`:
+
+```
+running as: ubuntu uid=1000 groups=1000 986
+OPENED gpiochip0 [pinctrl-bcm2711] 58 lines
+```
+
+That is the part everyone else gets wrong — group 986 is this Pi's `gpio` group,
+which does not exist inside the ROS image, so it has to be passed as a number.
+Getting it wrong is why so much advice on the internet says to use
+`--privileged`.
+
+What has **not** been proven: actually toggling a pin. Nothing has been wired to
+this Pi. If you have an LED and five minutes, that is the single most useful
+thing you could contribute.
+
+### What is not proven at all
+
+- **No Pi 5 has ever run this.** Pi 5 support is written from documentation and
+  tested against synthetic fixtures. It may be wrong.
+- **I2C and SPI are disabled on the author's Pi**, so only the "it's not enabled,
+  here's how to fix it" path has been exercised — never the working one.
+- **Nobody else has run this.** Every "verified" above means verified on one
+  Raspberry Pi 4 Model B Rev 1.5, running Debian 13, by one person.
 
 ## Requirements
 
@@ -75,21 +112,50 @@ at all.
 
 ## Try it
 
-There are no releases yet. From source:
+There are no releases yet. Build from source:
 
 ```bash
 git clone https://github.com/artineering/ros2pi.git
 cd ros2pi
-go build ./cmd/ros2pi
-./ros2pi check --dump-facts
+go build -o ~/.local/bin/ros2pi ./cmd/ros2pi
 ```
 
 Needs Go 1.25+. If your `apt` Go is older, the Go toolchain downloads the right
 version automatically — no action needed.
 
-You get a JSON description of your Pi: model and family, GPIO chips and their
-labels, I2C/SPI/serial nodes, group GIDs, firmware `config.txt` state, and how
-Docker is (or isn't) working. It is not pretty. Making it pretty is M2.
+Then, in a new or existing workspace:
+
+```bash
+mkdir -p ~/my_project && cd ~/my_project
+ros2pi init
+
+ros2pi pkg create --build-type ament_python --node-name my_node my_pkg
+ros2pi build
+ros2pi run my_pkg my_node        # -> Hi from my_pkg.
+```
+
+Anything ROS 2 understands is passed straight through, so the tool you already
+know still works:
+
+```bash
+ros2pi topic list
+ros2pi launch my_pkg my_launch.py
+ros2pi node info /my_node
+```
+
+The first run pulls `ros:jazzy` (about 1.3 GB) and takes a few minutes. After
+that the container stays up, so commands are quick.
+
+To see what it would do without doing it, add `--dry-run`. To see what it thinks
+of your Pi:
+
+```bash
+ros2pi check --dump-facts
+```
+
+That prints raw JSON today — model, GPIO chips and their labels, I2C/SPI/serial
+nodes, group IDs, firmware `config.txt` state, and how Docker is or isn't
+working. Turning it into something readable is the next piece of work.
 
 ## Help wanted: send us your Pi
 
