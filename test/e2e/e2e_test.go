@@ -19,6 +19,7 @@ package e2e
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -176,4 +177,72 @@ func TestStaleConfigRefusesToRecreateSilently(t *testing.T) {
 	// And the command it recommends must actually work.
 	run(t, ws, "up", "--recreate")
 	run(t, ws, "topic", "list")
+}
+
+// Dependencies declared in package.xml must survive the container being
+// recreated. This is the entire reason `ros2pi image build` exists: installing
+// them into a live container works and then loses them on the next recreate,
+// leaving a build broken by a missing module the user knows they installed.
+func TestImageBuildDependenciesSurviveRecreate(t *testing.T) {
+	ws := workspace(t)
+	run(t, ws, "pkg", "create", "--build-type", "ament_python",
+		"--node-name", "n", "dep_pkg")
+
+	// Declare a dependency that is NOT in the base image, so its presence later
+	// can only be explained by the image build.
+	manifest := filepath.Join(ws, "src", "dep_pkg", "package.xml")
+	body, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, []byte(strings.Replace(string(body),
+		"<test_depend>", "<depend>python3-serial</depend>\n  <test_depend>", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Not present before the build: without this the test could pass on a base
+	// image that happened to ship it.
+	if _, code := try(t, ws, "shell", "-c", "python3 -c 'import serial'"); code == 0 {
+		t.Skip("python3-serial is already in the base image; pick another dependency")
+	}
+
+	run(t, ws, "image", "build")
+	run(t, ws, "up", "--recreate")
+
+	if out := run(t, ws, "shell", "-c",
+		"python3 -c 'import serial; print(serial.__version__)'"); !strings.Contains(out, "3.") {
+		t.Fatalf("the dependency is not in the image:\n%s", out)
+	}
+
+	// The point: recreate destroys the container. The dependency must remain,
+	// because it is in the image rather than in the container.
+	run(t, ws, "up", "--recreate")
+	if out, code := try(t, ws, "shell", "-c", "python3 -c 'import serial'"); code != 0 {
+		t.Fatalf("the dependency vanished on recreate -- it was installed into the "+
+			"container, not baked into the image:\n%s", out)
+	}
+}
+
+// `ros2pi image build` renames the workspace image to match the container name.
+// docker inspect searches containers AND images, so a bare inspect resolves to
+// that image once the container is gone -- and ros2pi must still recover.
+func TestRecoversAfterContainerRemovedBehindItsBack(t *testing.T) {
+	ws := workspace(t)
+	run(t, ws, "up")
+
+	out, _ := exec.Command("docker", "ps", "-aq",
+		"--filter", "label=io.ros2pi.workspace="+ws).Output()
+	ids := strings.Fields(string(out))
+	if len(ids) == 0 {
+		t.Fatal("no container to remove")
+	}
+	if err := exec.Command("docker", "rm", "-f", ids[0]).Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A removed container is a normal state, not an error: ros2pi must make a
+	// new one rather than report a docker failure the user cannot act on.
+	if out := run(t, ws, "topic", "list"); !strings.Contains(out, "/rosout") {
+		t.Errorf("could not recover from a removed container:\n%s", out)
+	}
 }
