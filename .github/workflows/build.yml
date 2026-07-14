@@ -1,0 +1,119 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: # so you can run it by hand from the Actions tab
+
+# Only the newest run per branch matters; cancel superseded ones rather than
+# burning minutes on results nobody will read.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false # an amd64 failure should not hide an arm64 result
+      matrix:
+        include:
+          # arm64 is what a Raspberry Pi actually is. GitHub gives public repos
+          # native arm64 runners, so this is a real test rather than a
+          # cross-compile we hope works.
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            race: false
+          # amd64 is where people develop. The README claims it works; this is
+          # what keeps that claim honest, and it catches anything that
+          # accidentally assumes 64-bit ARM.
+          #
+          # It also carries the race detector, and that is not a throwaway
+          # detail: ThreadSanitizer needs a 48-bit memory layout, and Raspberry
+          # Pi kernels are built with 39-bit, so `go test -race` CANNOT run on a
+          # Pi at all ("unsupported VMA range"). Anyone developing this on the
+          # target hardware therefore cannot race-test locally, which makes this
+          # the only place it happens.
+          - arch: amd64
+            runner: ubuntu-24.04
+            race: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Read the version from go.mod so this file cannot drift from it.
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          # gofmt -l exits 0 even when it finds problems, so check its output.
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./...
+
+      - name: test (race detector)
+        if: matrix.race
+        run: go test -race ./...
+
+      - name: build
+        run: go build ./...
+
+  binary:
+    name: binary (arm64)
+    runs-on: ubuntu-24.04-arm
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe needs history, not just the tip
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: version
+        id: v
+        run: |
+          # A tag when there is one, otherwise a short SHA, so a downloaded
+          # binary can always be traced back to a commit.
+          v=$(git describe --tags --always --dirty 2>/dev/null || git rev-parse --short HEAD)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: build
+        run: |
+          CGO_ENABLED=0 go build \
+            -trimpath \
+            -ldflags "-s -w -X main.version=${{ steps.v.outputs.version }}" \
+            -o ros2pi ./cmd/ros2pi
+
+      - name: smoke test
+        run: |
+          # Prove the binary runs on arm64 and knows its own version. It cannot
+          # do more here: there is no Pi and no docker, which is exactly why
+          # host probing is separated from everything else.
+          ./ros2pi --version
+          ./ros2pi --help 2>&1 | head -3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ros2pi-linux-arm64-${{ steps.v.outputs.version }}
+          path: ros2pi
+          if-no-files-found: error
