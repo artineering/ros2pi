@@ -42,9 +42,9 @@ func (m Manager) Inspect(ctx context.Context) (State, error) {
 		return State{}, err
 	}
 	if r.Code != 0 {
-		// `docker inspect` on a missing container is not an error condition:
-		// "no container" is the normal state before the first `up`.
-		if strings.Contains(strings.ToLower(r.Stderr), "no such object") {
+		// A missing container is not an error condition: it is the normal state
+		// before the first `up`, and after any `docker rm`.
+		if isNotFound(r.Stderr) {
 			return State{Exists: false}, nil
 		}
 		return State{}, docker.Diagnose(nil, r.Stderr)
@@ -164,7 +164,7 @@ func (m Manager) remove(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if r.Code != 0 && !strings.Contains(strings.ToLower(r.Stderr), "no such container") {
+	if r.Code != 0 && !isNotFound(r.Stderr) {
 		return docker.Diagnose(nil, r.Stderr)
 	}
 	return nil
@@ -177,7 +177,7 @@ func (m Manager) Stop(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if r.Code != 0 && !strings.Contains(strings.ToLower(r.Stderr), "no such container") {
+	if r.Code != 0 && !isNotFound(r.Stderr) {
 		return docker.Diagnose(nil, r.Stderr)
 	}
 	return nil
@@ -207,6 +207,17 @@ func stalePlanError(cfg config.Config, st State, want dockerargs.Plan) error {
 		{Text: "apply the new configuration (stops running nodes):",
 			Cmd: "ros2pi up --recreate"},
 	}})
+}
+
+// isNotFound recognises docker's several ways of saying a container is not
+// there. The wording differs by command and by version -- `inspect` says "No
+// such container", others say "No such object" -- so this is matched in one
+// place rather than spelled slightly differently at each call site, which is
+// how "No such container" got missed the first time.
+func isNotFound(stderr string) bool {
+	s := strings.ToLower(stderr)
+	return strings.Contains(s, "no such container") ||
+		strings.Contains(s, "no such object")
 }
 
 func short(fp string) string {

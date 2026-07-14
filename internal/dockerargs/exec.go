@@ -107,11 +107,18 @@ func RemoveArgs(cfg config.Config) Plan {
 
 // InspectArgs asks docker about the workspace container. The output format is
 // chosen so lifecycle can parse state and labels in one call.
+//
+// --type container is essential, not tidiness. `docker inspect NAME` searches
+// containers AND images, and `ros2pi image build` produces an image named after
+// the same workspace. Once the container is removed, a bare inspect resolves to
+// that image instead, which has no .State, and the format template dies with
+// "map has no entry for key State" -- an error with no relationship to what the
+// user did.
 func InspectArgs(cfg config.Config) Plan {
 	name := ContainerName(cfg.Root)
 	const format = `{{.State.Status}}|{{index .Config.Labels "` + LabelPlan + `"}}|{{index .Config.Labels "` + LabelImage + `"}}`
 	return Plan{
-		Args:      []string{"inspect", "--format", format, name},
+		Args:      []string{"inspect", "--type", "container", "--format", format, name},
 		Container: name,
 		Decisions: []Decision{{Arg: "inspect", Reason: "read container state and labels"}},
 	}

@@ -115,7 +115,7 @@ func (a App) dispatch(ctx context.Context, in Invocation) (int, error) {
 	case "shell":
 		return env.exec(ctx, append([]string{"bash"}, in.OwnArgs...))
 	case "image":
-		return 1, fmt.Errorf("`ros2pi image` is not implemented yet")
+		return env.image(ctx, in.OwnArgs)
 	}
 	return 1, fmt.Errorf("unknown command %q", in.Verb)
 }

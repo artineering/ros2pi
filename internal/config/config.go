@@ -29,6 +29,7 @@ const SchemaVersion = 1
 type Config struct {
 	Version  int               `toml:"version"`
 	ROS      ROS               `toml:"ros"`
+	Image    Image             `toml:"image"`
 	Hardware Hardware          `toml:"hardware"`
 	Build    Build             `toml:"build"`
 	Env      map[string]string `toml:"env"`
@@ -36,6 +37,21 @@ type Config struct {
 
 	// Root is the absolute workspace directory. Set by Load, not by the file.
 	Root string `toml:"-"`
+}
+
+// Image controls `ros2pi image build`, which bakes package.xml dependencies
+// into an image so they survive a container being recreated.
+type Image struct {
+	// Base is what the workspace image is built FROM. It is deliberately
+	// separate from ros.image: after a build, ros.image IS the built image, and
+	// building from that again would stack the image on itself every time.
+	// Empty means "ros:<distro>".
+	Base string `toml:"base"`
+
+	// Name overrides the generated tag. Empty means one derived from the
+	// workspace, which carries the same hash as the container name so two
+	// workspaces cannot collide.
+	Name string `toml:"name"`
 }
 
 type ROS struct {
@@ -237,4 +253,36 @@ func Marshal(c Config) ([]byte, error) {
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
 	return b, nil
+}
+
+// Save writes the config back to its workspace, preserving the explanatory
+// header a fresh `ros2pi init` wrote.
+//
+// Rewriting a user's file is not done lightly: it happens only for
+// `ros2pi image build`, which announces the change, because a container running
+// a different image from the one ros2pi.toml names would be baffling to debug.
+func Save(c Config) error {
+	if c.Root == "" {
+		return errs.New(errs.CodeConfigInvalid, "cannot save a config with no workspace root")
+	}
+	path := filepath.Join(c.Root, FileName)
+
+	body, err := Marshal(c)
+	if err != nil {
+		return err
+	}
+
+	// Keep any leading comment block the file already had.
+	var header []byte
+	if old, err := os.ReadFile(path); err == nil {
+		for _, line := range strings.SplitAfter(string(old), "\n") {
+			t := strings.TrimSpace(line)
+			if t == "" || strings.HasPrefix(t, "#") {
+				header = append(header, line...)
+				continue
+			}
+			break
+		}
+	}
+	return os.WriteFile(path, append(header, body...), 0o644)
 }
