@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "probed_at": "2026-07-14T00:00:00Z",
+  "probed_by": "fixture",
+  "arch": {
+    "machine": "aarch64",
+    "dpkg": "arm64",
+    "go": "arm64"
+  },
+  "kernel": {
+    "release": "6.18.34+rpt-rpi-v8",
+    "major": 6,
+    "minor": 18,
+    "patch": 34
+  },
+  "os": {
+    "id": "debian",
+    "version_id": "13",
+    "pretty": "Debian GNU/Linux 13 (trixie)"
+  },
+  "model": {
+    "raw": "Raspberry Pi 4 Model B Rev 1.5",
+    "family": "pi4"
+  },
+  "identity": {
+    "uid": 1000,
+    "gid": 1000,
+    "username": "strangeloop",
+    "under_sudo": false
+  },
+  "groups": [
+    {
+      "name": "dialout",
+      "gid": 20,
+      "exists": true,
+      "name_resolvable": true,
+      "user_is_member": true,
+      "session_has_group": true
+    },
+    {
+      "name": "docker",
+      "gid": 984,
+      "exists": true,
+      "name_resolvable": false,
+      "user_is_member": true,
+      "session_has_group": false
+    },
+    {
+      "name": "gpio",
+      "gid": 986,
+      "exists": true,
+      "name_resolvable": false,
+      "user_is_member": true,
+      "session_has_group": true
+    },
+    {
+      "name": "i2c",
+      "gid": 988,
+      "exists": true,
+      "name_resolvable": false,
+      "user_is_member": true,
+      "session_has_group": true
+    },
+    {
+      "name": "input",
+      "gid": 996,
+      "exists": true,
+      "name_resolvable": false,
+      "user_is_member": true,
+      "session_has_group": true
+    },
+    {
+      "name": "render",
+      "gid": 992,
+      "exists": true,
+      "name_resolvable": false,
+      "user_is_member": true,
+      "session_has_group": true
+    },
+    {
+      "name": "spi",
+      "gid": 989,
+      "exists": true,
+      "name_resolvable": false,
+      "user_is_member": true,
+      "session_has_group": true
+    },
+    {
+      "name": "video",
+      "gid": 44,
+      "exists": true,
+      "name_resolvable": true,
+      "user_is_member": true,
+      "session_has_group": true
+    }
+  ],
+  "gpio_chips": [
+    {
+      "name": "gpiochip0",
+      "label": "pinctrl-bcm2711",
+      "dev": "/dev/gpiochip0",
+      "lines": 58,
+      "header": true,
+      "source": "ioctl"
+    },
+    {
+      "name": "gpiochip1",
+      "label": "raspberrypi-exp-gpio",
+      "dev": "/dev/gpiochip1",
+      "lines": 8,
+      "header": false,
+      "source": "ioctl"
+    }
+  ],
+  "gpio_mem": [
+    {
+      "path": "/dev/gpiomem",
+      "exists": true,
+      "major": 238,
+      "minor": 0,
+      "mode": 432,
+      "owner_gid": 986
+    }
+  ],
+  "i2c_buses": [
+    {
+      "path": "/dev/i2c-0",
+      "exists": true,
+      "major": 89,
+      "minor": 0,
+      "mode": 432,
+      "owner_gid": 988
+    },
+    {
+      "path": "/dev/i2c-10",
+      "exists": true,
+      "major": 89,
+      "minor": 10,
+      "mode": 432,
+      "owner_gid": 988
+    },
+    {
+      "path": "/dev/i2c-20",
+      "exists": true,
+      "major": 89,
+      "minor": 20,
+      "mode": 432,
+      "owner_gid": 988
+    },
+    {
+      "path": "/dev/i2c-21",
+      "exists": true,
+      "major": 89,
+      "minor": 21,
+      "mode": 432,
+      "owner_gid": 988
+    },
+    {
+      "path": "/dev/i2c-22",
+      "exists": true,
+      "major": 89,
+      "minor": 22,
+      "mode": 432,
+      "owner_gid": 988
+    }
+  ],
+  "i2c_header": {
+    "path": "",
+    "source": "alias",
+    "alias": "/soc/i2c@7e804000"
+  },
+  "spi_devs": [],
+  "serial": [
+    {
+      "path": "/dev/serial0",
+      "resolved": "/dev/ttyS0",
+      "exists": true,
+      "major": 4,
+      "minor": 64,
+      "mode": 432,
+      "owner_gid": 20
+    },
+    {
+      "path": "/dev/serial1",
+      "exists": false,
+      "major": 0,
+      "minor": 0,
+      "mode": 0,
+      "owner_gid": 0
+    },
+    {
+      "path": "/dev/ttyAMA0",
+      "exists": false,
+      "major": 0,
+      "minor": 0,
+      "mode": 0,
+      "owner_gid": 0
+    },
+    {
+      "path": "/dev/ttyS0",
+      "exists": true,
+      "major": 4,
+      "minor": 64,
+      "mode": 432,
+      "owner_gid": 20
+    }
+  ],
+  "usb_serial": [],
+  "boot": {
+    "config_path": "/boot/firmware/config.txt",
+    "found": true,
+    "stub_seen": true,
+    "dtparam_i2c_arm": "unset",
+    "dtparam_spi": "unset",
+    "enable_uart": "on"
+  },
+  "docker": {
+    "binary": "/usr/bin/docker",
+    "problem": "permission_denied_stale_session",
+    "rootless": false
+  }
+}
+
