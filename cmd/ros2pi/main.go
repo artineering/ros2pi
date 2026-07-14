@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ros2pi/ros2pi/internal/hostfacts"
+	"github.com/artineering/ros2pi/internal/hostfacts"
 )
 
 var version = "0.0.0-dev"
