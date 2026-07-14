@@ -1,1 +1,4 @@
 /ros2pi
+
+# Claude Code worktrees; not part of the project
+.claude/
