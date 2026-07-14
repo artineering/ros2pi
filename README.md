@@ -139,7 +139,8 @@ Hardware
 
 `--json` for scripts, `--explain <id>` for one check, `--strict` to fail on
 warnings too. `--dump-facts` still prints the raw JSON, which is what to attach
-to a bug report.
+to a bug report — it describes your hardware, including your local username, so
+read it before you post it.
 
 ### Dependencies
 
@@ -199,27 +200,6 @@ either — Pi 5 support is written from documentation and tested against synthet
 fixtures, so it may be wrong. I2C and SPI are disabled on that Pi, which is why
 only the "it's not enabled, here's how to fix it" path has been exercised, never
 the working one.
-
-## Help wanted: send us your Pi (as JSON)
-
-The hardest problem with a tool like this is that I can only test it on the
-hardware I own. So `--dump-facts` exists to fix that:
-
-```bash
-ros2pi check --dump-facts > my-pi.json
-```
-
-**Please open an issue and attach that file** — especially if you have a **Pi 5**,
-a Compute Module, or anything unusual. A Pi 5 is the most valuable of all, since
-no real one has ever run this. Every fixture becomes a permanent regression test,
-and I can replay your exact host:
-
-```bash
-ROS2PI_FACTS=my-pi.json ros2pi check --dump-facts
-```
-
-It contains a hardware description — model, kernel, device nodes, group IDs, your
-local username. No keys or secrets. Read it before you post it.
 
 ## Design notes
 
