@@ -140,6 +140,17 @@ func (p LinuxProber) identity(warns *[]Warning) Identity {
 	if err != nil {
 		if u, err := e.LookupUID(id.UID); err == nil {
 			id.Username = u.Username
+			// Prefer the passwd PRIMARY group over the effective gid.
+			//
+			// getegid() reflects transient group context: under `newgrp docker`
+			// -- which ros2pi itself recommends for a stale session -- it is the
+			// docker group, not the user's. Using it would write build output as
+			// group=docker, and would change the container fingerprint the
+			// moment the user logged back in normally, making a healthy
+			// container look stale and demanding a pointless recreate.
+			if gid, err := strconv.Atoi(u.Gid); err == nil {
+				id.GID = gid
+			}
 		}
 		return id
 	}
