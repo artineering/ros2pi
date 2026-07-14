@@ -89,6 +89,13 @@ ros2 pkg create --build-type ament_python \
   --node-name my_node my_pkg
 # writes ./my_pkg, not ./src/my_pkg
 
+# declare deps in package.xml, then:
+sudo rosdep init        # first time only
+rosdep update
+rosdep install --from-paths src \
+  --ignore-src -y
+# installs onto the host, for good
+
 colcon build --symlink-install
 source install/setup.bash
 
@@ -107,6 +114,13 @@ ros2pi init
 ros2pi pkg create --build-type ament_python \
   --node-name my_node my_pkg
 # writes ./src/my_pkg
+
+# declare deps in package.xml, then:
+ros2pi image build
+# runs the same rosdep install, inside
+# an image build -- nothing touches the Pi
+
+
 
 ros2pi build
 
@@ -130,6 +144,10 @@ things differ:
   create` writes to the root instead — and colcon builds it anyway, so nothing
   tells you the layout is wrong.
 - **`--symlink-install` is already the default** in `ros2pi build`.
+- **Dependencies land in an image, not on your Pi.** `rosdep install` normally
+  apt-installs onto the machine you run it on. `ros2pi image build` runs the same
+  command inside a `docker build`, so your Pi stays clean and the dependencies
+  survive the container being recreated.
 
 `ros2pi init` gives you an ordinary ROS 2 workspace — the same layout colcon and
 every tutorial expect:
@@ -193,6 +211,9 @@ That reads every `package.xml` under `src/`, lets rosdep resolve them, and bakes
 them into an image for this workspace. This avoids losing your dependencies when
 the container is recreated, which is what happens if you install them into a
 running container instead.
+
+Only the `package.xml` files go into the image layer, not your source. So editing
+your nodes doesn't reinstall dependencies, and changing a dependency does.
 
 ### When something is wrong
 
