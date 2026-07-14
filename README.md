@@ -59,7 +59,7 @@ device and group flags that make `--privileged` unnecessary.
 | Camera | not started |
 | Releases / install script | not started |
 
-93 tests, none of which need a Pi or Docker to run. CI builds and tests on real
+105 tests, none of which need a Pi or Docker to run. CI builds and tests on real
 arm64 hardware for every commit.
 
 ### What "GPIO works" means, precisely
