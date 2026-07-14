@@ -95,7 +95,14 @@ func (a App) dispatch(ctx context.Context, in Invocation) (int, error) {
 
 	switch in.Mode {
 	case ModePassthrough:
-		return env.exec(ctx, append([]string{"ros2"}, in.PassArgs...))
+		// The single place a ros2 command is adjusted before forwarding; see
+		// adjustPassthrough for why this exception exists and how narrow it is.
+		args, note := adjustPassthrough(in.PassArgs)
+		if note != "" {
+			// Never rewrite someone's command silently.
+			fmt.Fprintln(a.Stderr, "ros2pi: "+note)
+		}
+		return env.exec(ctx, append([]string{"ros2"}, args...))
 	}
 
 	switch in.Verb {
