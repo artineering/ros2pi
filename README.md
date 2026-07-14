@@ -158,5 +158,5 @@ the ROS project.
 
 ## License
 
-Not yet chosen. Until one is added, no rights are granted beyond viewing the
-source — that will be fixed before any release.
+[Apache License 2.0](LICENSE) — the ROS ecosystem's standard, and it carries an
+explicit patent grant, which matters for a project that may end up in robots.
