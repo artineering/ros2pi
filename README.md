@@ -68,6 +68,69 @@ that the container stays up, so commands are quick.
 
 ## How you work
 
+If you already know ROS 2, the fastest way to explain ros2pi is to put the two
+side by side. Same project, same result:
+
+<table>
+<tr>
+<th>Plain ROS 2, on a workstation</th>
+<th>ros2pi, on the Pi</th>
+</tr>
+<tr>
+<td>
+
+```bash
+# needs ROS 2 installed on the host
+
+mkdir -p ~/ws/src && cd ~/ws
+source /opt/ros/jazzy/setup.bash
+
+ros2 pkg create --build-type ament_python \
+  --node-name my_node my_pkg
+# writes ./my_pkg, not ./src/my_pkg
+
+colcon build --symlink-install
+source install/setup.bash
+
+ros2 run my_pkg my_node
+```
+
+</td>
+<td>
+
+```bash
+# needs only Docker on the Pi
+
+mkdir -p ~/my_project && cd ~/my_project
+ros2pi init
+
+ros2pi pkg create --build-type ament_python \
+  --node-name my_node my_pkg
+# writes ./src/my_pkg
+
+ros2pi build
+
+
+ros2pi run my_pkg my_node
+```
+
+</td>
+</tr>
+</table>
+
+The commands, the arguments and the workspace layout are the same — that's
+deliberate, and anything `ros2` understands is passed through untouched. Four
+things differ:
+
+- **No ROS on the Pi.** Only Docker.
+- **No sourcing, ever.** Every ros2pi command sources the ROS distro, and your
+  workspace overlay once it's been built. There's no `setup.bash` step to forget
+  and no "works in this shell but not that one".
+- **`pkg create` writes to `src/`.** Run from a workspace root, plain `ros2 pkg
+  create` writes to the root instead — and colcon builds it anyway, so nothing
+  tells you the layout is wrong.
+- **`--symlink-install` is already the default** in `ros2pi build`.
+
 `ros2pi init` gives you an ordinary ROS 2 workspace — the same layout colcon and
 every tutorial expect:
 
@@ -127,9 +190,9 @@ ros2pi image build
 ```
 
 That reads every `package.xml` under `src/`, lets rosdep resolve them, and bakes
-them into an image for this workspace. Installing them into a running container
-instead would work right up until the container was recreated, and then quietly
-lose them.
+them into an image for this workspace. This avoids losing your dependencies when
+the container is recreated, which is what happens if you install them into a
+running container instead.
 
 ### When something is wrong
 
@@ -137,9 +200,8 @@ lose them.
 ros2pi check
 ```
 
-It reports on your Pi and, for anything broken, tells you what to run. It needs
-neither a workspace nor a working Docker — the moment you most need it is the
-moment nothing is set up.
+It reports on your Pi and, for anything broken, tells you what to run. It works
+without a workspace and without a working Docker, which is when you need it most.
 
 ```
 Hardware
@@ -211,9 +273,9 @@ ROS platform) while `arm64` Ubuntu containers are Tier 1.
 The hard part is telling the container about your Pi, and getting it wrong fails
 in ways that actively mislead you: root-owned files you can't edit, devices that
 are listed in the container but refuse to open, buses that look healthy but were
-never enabled. The usual advice is to paste `--privileged` and move on. That
-works, and it means your robot's nodes run with full access to the host — any bug
-in any node can reach the whole machine.
+never enabled. The usual advice is to paste `--privileged` and move on. It works,
+but it gives every node full access to the host, so any bug in any node can reach
+the whole machine.
 
 ros2pi probes the host, works out what is actually true about *your* Pi, and
 constructs the right `docker` invocation — including the fine-grained device and
