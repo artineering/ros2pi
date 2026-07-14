@@ -132,56 +132,6 @@ ros2pi run my_pkg my_node
 </tr>
 </table>
 
-Same commands, same layout. What the table can't show is where your code lives
-and what the loop feels like.
-
-`ros2pi init` gives you an ordinary ROS 2 workspace — the same layout colcon and
-every tutorial expect:
-
-```
-~/my_project/
-  ros2pi.toml            which ROS image to use, and which hardware you want
-  src/                   your packages live here
-  build/ install/ log/   colcon's output (init gitignores these for you)
-```
-
-Your code stays on the Pi, in your own home directory. The workspace is
-bind-mounted into the container at `/ros2_ws`, and the container runs as *you*
-rather than root, so everything under `src/` stays editable from your normal
-editor. Nothing you write lives inside the container.
-
-Then it's edit, build, run:
-
-```bash
-# edit src/my_pkg/my_pkg/my_node.py in whatever editor you like
-ros2pi build
-ros2pi run my_pkg my_node
-```
-
-Because `ros2pi build` passes `--symlink-install`, editing an existing Python
-file doesn't need a rebuild — just `ros2pi run` again and your change is live.
-Rebuild when you add a new file, change `setup.py` or `package.xml`, or write
-C++.
-
-Anything `ros2` understands is passed through untouched:
-
-```bash
-ros2pi topic list
-ros2pi launch my_pkg my_launch.py
-ros2pi node info /my_node
-```
-
-Every command lands in the same container, so a second terminal can inspect a
-node while it runs. (The node `pkg create` generates isn't one — it prints `Hi
-from my_pkg.` and exits. That's the template, not a fault.)
-
-`ros2pi down` stops the container; `ros2pi shell` drops you inside it. Add
-`--dry-run` to any command to see what it would do without doing it.
-
-`build/`, `install/` and `log/` sit on the Pi but hold binaries linked against
-the *container's* ROS. They will not run on the host, which is why `init`
-gitignores them.
-
 ### Adding dependencies
 
 Declare them in `package.xml` as usual, then:
