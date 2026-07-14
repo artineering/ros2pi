@@ -130,13 +130,29 @@ func sanitize(s string) string {
 	return strings.Trim(b.String(), "-")
 }
 
+// Opts is what CreateArgs needs beyond the config and the host.
+type Opts struct {
+	// Version is the ros2pi that built the container. It is METADATA: recorded
+	// as a label, deliberately not part of the fingerprint. Upgrading ros2pi
+	// does not change what a container is, and treating it as though it did
+	// marked every container on the machine stale after every upgrade.
+	Version string
+
+	// ShimDir is the host directory holding entry.sh, bind-mounted read-only.
+	// It IS part of the fingerprint: the shim decides how ROS is sourced and
+	// whether a wrong distro is caught, so a changed shim is a changed
+	// container. The directory is content-addressed, so editing entry.sh moves
+	// the path and correctly marks existing containers stale.
+	ShimDir string
+}
+
 // CreateArgs builds the `docker create` command line for a workspace container.
 //
 // The container is long-lived and does nothing (`sleep infinity`); work happens
 // via `docker exec`. That is not an optimisation: a fresh `docker run` per
 // command measured 5.3s against 2.0s for exec on a Pi 4, and it also discards
 // the ROS daemon's discovery state between commands.
-func CreateArgs(cfg config.Config, f hostfacts.HostFacts, version string) (Plan, error) {
+func CreateArgs(cfg config.Config, f hostfacts.HostFacts, o Opts) (Plan, error) {
 	if err := checkArch(f); err != nil {
 		return Plan{}, err
 	}
@@ -156,19 +172,22 @@ func CreateArgs(cfg config.Config, f hostfacts.HostFacts, version string) (Plan,
 		return Plan{}, err
 	}
 	addNetwork(b, cfg)
-	addMounts(b, cfg)
+	addMounts(b, cfg, o)
 	addEnv(b, cfg, f)
 	if err := addHardware(b, cfg, f); err != nil {
 		return Plan{}, err
 	}
-	addLabels(b, cfg, f, version)
 
-	// The fingerprint covers everything decided so far. It must be computed
-	// before it is itself added as a label, or the hash would cover its own
-	// value.
-	fp := fingerprint(b.args)
-	b.add("fingerprint of this configuration; a differing label means stale",
-		"", "--label", LabelPlan+"="+fp)
+	// Everything decided so far, plus the image, is what the container IS.
+	// The fingerprint covers exactly that -- and nothing else.
+	//
+	// Labels are excluded on purpose: they describe a container, they do not
+	// configure it. Including them once meant a version bump alone made every
+	// container look stale, and the fix for that must not quietly drop the
+	// image from the hash, so it is appended here explicitly.
+	fp := fingerprint(append(append([]string{}, b.args...), cfg.ROS.Image))
+
+	addLabels(b, cfg, o.Version, fp)
 
 	b.add("the ROS image this workspace targets", "cfg.ROS.Image", cfg.ROS.Image)
 	// Keep the container alive doing nothing; exec does the work.
@@ -262,10 +281,20 @@ func addNetwork(b *builder, cfg config.Config) {
 		"cfg.ROS.IPC", "--ipc", cfg.ROS.IPC)
 }
 
-func addMounts(b *builder, cfg config.Config) {
+func addMounts(b *builder, cfg config.Config, o Opts) {
 	b.add("the workspace itself", "cfg.Root",
 		"-v", cfg.Root+":"+WorkspaceDir)
 	b.add("start in the workspace", "", "-w", WorkspaceDir)
+
+	// The shim is a functional part of the container, not an afterthought: it
+	// decides how ROS is sourced and catches a wrong distro. Mounting it here,
+	// inside the fingerprint, is what makes a changed entry.sh mark existing
+	// containers stale -- which it must, or a fix to the shim would never reach
+	// anyone who already had a container.
+	if o.ShimDir != "" {
+		b.add("the entry shim; content-addressed, so a change forces a recreate",
+			"opts.ShimDir", "-v", o.ShimDir+":"+ShimDir+":ro")
+	}
 	for _, m := range cfg.Mounts.Extra {
 		b.add("extra mount from config", "cfg.Mounts.Extra", "-v", m)
 	}
@@ -289,10 +318,17 @@ func addEnv(b *builder, cfg config.Config, f hostfacts.HostFacts) {
 	}
 }
 
-func addLabels(b *builder, cfg config.Config, f hostfacts.HostFacts, version string) {
+// addLabels records what this container is, for humans and for `docker ps`.
+//
+// None of these affect the fingerprint. That is the point: a label is a
+// description, and re-describing a container is not a reason to destroy it.
+func addLabels(b *builder, cfg config.Config, version, fp string) {
 	b.add("workspace this container serves", "", "--label", LabelWorkspace+"="+cfg.Root)
 	b.add("image at creation time", "", "--label", LabelImage+"="+cfg.ROS.Image)
-	b.add("ros2pi version that created it", "", "--label", LabelVersion+"="+version)
+	b.add("ros2pi version that created it (metadata only)", "",
+		"--label", LabelVersion+"="+version)
+	b.add("fingerprint of the configuration; a differing label means stale", "",
+		"--label", LabelPlan+"="+fp)
 }
 
 // sortedKeys makes map iteration deterministic. Any map that reaches argv must

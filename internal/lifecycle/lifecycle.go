@@ -79,7 +79,8 @@ func (m Manager) Inspect(ctx context.Context) (State, error) {
 // Killing that to apply a config edit the user made minutes ago would be a
 // nasty surprise, so the decision is handed back to them.
 func (m Manager) Ensure(ctx context.Context, recreate bool) (dockerargs.Plan, error) {
-	want, err := dockerargs.CreateArgs(m.Cfg, m.Facts, m.Version)
+	want, err := dockerargs.CreateArgs(m.Cfg, m.Facts,
+		dockerargs.Opts{Version: m.Version, ShimDir: m.ShimDir})
 	if err != nil {
 		return want, err
 	}
@@ -111,17 +112,10 @@ func (m Manager) Ensure(ctx context.Context, recreate bool) (dockerargs.Plan, er
 }
 
 func (m Manager) createAndStart(ctx context.Context, p dockerargs.Plan) error {
-	args := p.Args
-	// The shim is mounted read-only at create time. It lives outside the plan
-	// fingerprint because its path is content-addressed: a new ros2pi version
-	// changes the path, and that SHOULD force a recreate, which it does by
-	// changing these args.
-	if m.ShimDir != "" {
-		args = insertBeforeImage(args, p.Image,
-			"-v", m.ShimDir+":"+dockerargs.ShimDir+":ro")
-	}
-
-	r, err := m.Docker.Run(ctx, args...)
+	// The shim mount is part of the plan now, not spliced in here: it belongs
+	// inside the fingerprint, and reaching into a built argv to insert a flag
+	// before the image was a fragile way to say so.
+	r, err := m.Docker.Run(ctx, p.Args...)
 	if err != nil {
 		return err
 	}
@@ -129,21 +123,6 @@ func (m Manager) createAndStart(ctx context.Context, p dockerargs.Plan) error {
 		return docker.Diagnose(nil, r.Stderr)
 	}
 	return m.start(ctx)
-}
-
-// insertBeforeImage places flags after the last flag and before the image name,
-// which docker requires: everything after the image is the container's command.
-func insertBeforeImage(args []string, image string, extra ...string) []string {
-	for i := len(args) - 1; i >= 0; i-- {
-		if args[i] == image {
-			out := make([]string, 0, len(args)+len(extra))
-			out = append(out, args[:i]...)
-			out = append(out, extra...)
-			out = append(out, args[i:]...)
-			return out
-		}
-	}
-	return append(args, extra...) // image not found; caller will fail loudly
 }
 
 func (m Manager) start(ctx context.Context) error {
