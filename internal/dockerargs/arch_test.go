@@ -66,6 +66,33 @@ func TestDockerargsStaysPure(t *testing.T) {
 // hostfacts is the seam's other half: it may touch the host, but it must not
 // depend on the packages that consume it, or the dependency inverts and purity
 // becomes unenforceable.
+// check is pure for the same reason dockerargs is: the hosts worth diagnosing
+// are the broken ones we do not have. Every failure path in the report is
+// reachable from a JSON fixture, and stays that way only if nothing here can
+// read the real machine.
+func TestCheckStaysPure(t *testing.T) {
+	pkg, err := build.Import("github.com/artineering/ros2pi/internal/check", "", 0)
+	if err != nil {
+		t.Fatalf("import check: %v", err)
+	}
+	allowed := map[string]bool{
+		"encoding/json": true, "fmt": true, "io": true, "sort": true, "strings": true,
+		"github.com/artineering/ros2pi/internal/config":    true,
+		"github.com/artineering/ros2pi/internal/errs":      true,
+		"github.com/artineering/ros2pi/internal/hostfacts": true,
+	}
+	for _, imp := range pkg.Imports {
+		if why, bad := forbidden[imp]; bad {
+			t.Errorf("check imports %q: %s", imp, why)
+			continue
+		}
+		if !allowed[imp] {
+			t.Errorf("check imports %q, which is not on its allow-list.\n"+
+				"If it reads the host, probe it in hostfacts and put the answer in HostFacts.", imp)
+		}
+	}
+}
+
 func TestHostfactsDoesNotDependOnItsConsumers(t *testing.T) {
 	pkg, err := build.Import("github.com/artineering/ros2pi/internal/hostfacts", "", 0)
 	if err != nil {

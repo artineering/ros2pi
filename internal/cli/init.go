@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/artineering/ros2pi/internal/check"
+
 	"github.com/artineering/ros2pi/internal/config"
 	"github.com/artineering/ros2pi/internal/errs"
 	"github.com/artineering/ros2pi/internal/hostfacts"
@@ -77,29 +79,123 @@ func configHeader() []byte {
 `)
 }
 
-// cmdCheck currently only implements --dump-facts; the human-readable report is
-// M2. It deliberately does NOT require a workspace or a working docker: the
-// whole point is to run when things are broken.
+// cmdCheck reports on the host.
+//
+// It deliberately requires neither a workspace nor a working docker: the moment
+// a user most needs this is the moment their setup is broken, and a diagnostic
+// that refuses to run when things are wrong is not a diagnostic.
 func (a App) cmdCheck(ctx context.Context, in Invocation) (int, error) {
-	dump := false
-	for _, arg := range in.OwnArgs {
-		if arg == "--dump-facts" {
+	var dump, asJSON, strict bool
+	var explain string
+
+	for i := 0; i < len(in.OwnArgs); i++ {
+		switch arg := in.OwnArgs[i]; arg {
+		case "--dump-facts":
 			dump = true
+		case "--json":
+			asJSON = true
+		case "--strict":
+			strict = true
+		case "--explain":
+			if i+1 >= len(in.OwnArgs) {
+				return 2, fmt.Errorf("--explain needs a check id, e.g. --explain hw.i2c\n  ids: %s",
+					strings.Join(check.IDs(), " "))
+			}
+			explain = in.OwnArgs[i+1]
+			i++
+		default:
+			if v, ok := strings.CutPrefix(arg, "--explain="); ok {
+				explain = v
+				continue
+			}
+			return 2, fmt.Errorf("unknown flag for `ros2pi check`: %s", arg)
 		}
-	}
-	if !dump {
-		return 2, fmt.Errorf("`ros2pi check` reporting is not implemented yet (M2)\n" +
-			"  for now: ros2pi check --dump-facts")
 	}
 
 	f, err := a.probe(ctx)
 	if err != nil {
 		return 1, err
 	}
-	if err := f.Dump(a.Stdout); err != nil {
-		return 1, err
+
+	if dump {
+		return 0, f.Dump(a.Stdout)
+	}
+
+	// A config is optional: nil simply means the workspace checks report that
+	// there is no workspace, rather than the whole command refusing to run.
+	cfg := a.tryConfig(in)
+
+	if explain != "" {
+		return a.explain(explain, f, cfg)
+	}
+
+	rep := check.Run(f, cfg)
+
+	if asJSON {
+		if err := check.RenderJSON(a.Stdout, rep); err != nil {
+			return 1, err
+		}
+	} else {
+		check.Render(a.Stdout, rep, a.colour())
+	}
+
+	if rep.Failed > 0 || (strict && rep.Warned > 0) {
+		return 1, nil
 	}
 	return 0, nil
+}
+
+// tryConfig loads the workspace config if there is one, and shrugs if not.
+func (a App) tryConfig(in Invocation) *config.Config {
+	dir := in.Globals.Workspace
+	if dir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil
+		}
+		dir = wd
+	}
+	cfg, err := config.Load(dir)
+	if err != nil {
+		return nil
+	}
+	return &cfg
+}
+
+// explain prints one check's verdict on its own, for when the report says
+// something surprising and the user wants to know why.
+func (a App) explain(id string, f hostfacts.HostFacts, cfg *config.Config) (int, error) {
+	c, found := check.Find(id)
+	if !found {
+		return 2, fmt.Errorf("no check called %q\n  ids: %s", id, strings.Join(check.IDs(), " "))
+	}
+	r := c.Run(f, cfg)
+
+	fmt.Fprintf(a.Stdout, "%s  (%s)\n\n", c.ID, c.Section)
+	fmt.Fprintf(a.Stdout, "  %s  %s  %s\n", r.Status, c.Title, r.Value)
+	for _, d := range r.Detail {
+		fmt.Fprintf(a.Stdout, "        %s\n", d)
+	}
+	if r.Fix != nil {
+		for _, s := range r.Fix.Steps {
+			if s.Text != "" {
+				fmt.Fprintf(a.Stdout, "        fix: %s\n", s.Text)
+			}
+			if s.Cmd != "" {
+				fmt.Fprintf(a.Stdout, "             %s\n", s.Cmd)
+			}
+		}
+	}
+	return 0, nil
+}
+
+// colour is on only for a terminal: escape codes in a pipe or a pasted bug
+// report are noise.
+func (a App) colour() bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	return a.IsTTY()
 }
 
 func factsProber(osPath string) (hostfacts.Prober, error) {

@@ -8,8 +8,8 @@ without installing ROS on the Pi.
 > **Status: early, but the core works.**
 >
 > Building and running ROS 2 packages works today, and has been verified on a
-> real Pi 4. Hardware access works for GPIO and is unverified for everything
-> else. `ros2pi check` still only prints raw JSON.
+> real Pi 4. `ros2pi check` diagnoses the Pi and tells you how to fix what it
+> finds. Hardware access works for GPIO and is unverified for everything else.
 >
 > There are no releases yet, and nobody but the author has run this. See
 > [Status](#status) for exactly what is proven and what is not.
@@ -54,7 +54,8 @@ device and group flags that make `--privileged` unnecessary.
 | GPIO access | **works** — see below for exactly what that means |
 | I2C / SPI | code exists; the *refusal* path is verified, the working path is not |
 | UART / USB serial | code exists, never run |
-| `ros2pi check` report | **not started** — only `--dump-facts` (raw JSON) |
+| `ros2pi check` report | **works** — readable diagnosis with a fix for every problem |
+| `ros2pi image build` | **works** — bakes package.xml deps into an image so they survive |
 | Camera | not started |
 | Releases / install script | not started |
 
@@ -146,16 +147,53 @@ ros2pi node info /my_node
 The first run pulls `ros:jazzy` (about 1.3 GB) and takes a few minutes. After
 that the container stays up, so commands are quick.
 
-To see what it would do without doing it, add `--dry-run`. To see what it thinks
-of your Pi:
+To see what it would do without doing it, add `--dry-run`.
+
+### When something is wrong
 
 ```bash
-ros2pi check --dump-facts
+ros2pi check
 ```
 
-That prints raw JSON today — model, GPIO chips and their labels, I2C/SPI/serial
-nodes, group IDs, firmware `config.txt` state, and how Docker is or isn't
-working. Turning it into something readable is the next piece of work.
+It reports on your Pi and, for anything broken, tells you what to run. It needs
+neither a workspace nor a working Docker — the moment you most need it is the
+moment nothing is set up.
+
+```
+Hardware
+  ok    gpio chip   gpiochip0 [pinctrl-bcm2711] 58 lines, via ioctl
+  FAIL  i2c         not enabled
+        the header's controller is /soc/i2c@7e804000, per the device-tree alias
+        it has no live bus, so the kernel never brought it up
+        dtparam=i2c_arm is unset in /boot/firmware/config.txt
+
+        Note: /dev/i2c-0, /dev/i2c-10, /dev/i2c-20 exist, but they are HDMI/DDC
+        and camera buses, not the header. `ls /dev/i2c-*` looking healthy means
+        nothing.
+        fix: enable it:
+              sudo raspi-config nonint do_i2c 0
+              sudo reboot
+  ok    groups      mapped
+        gpio     -> --group-add 986 (numeric: not in the ROS image)
+        dialout  -> --group-add dialout (by name: 20 matches the image)
+```
+
+`--json` for scripts, `--explain <id>` for one check, `--strict` to fail on
+warnings too. `--dump-facts` still prints the raw JSON, which is what to attach
+to a bug report.
+
+### Dependencies
+
+Declare them in `package.xml` as usual, then:
+
+```bash
+ros2pi image build
+```
+
+That reads every `package.xml` under `src/`, lets rosdep resolve them, and bakes
+them into an image for this workspace. Installing them into a running container
+instead would work right up until the container was recreated, and then quietly
+lose them.
 
 ## Help wanted: send us your Pi
 
