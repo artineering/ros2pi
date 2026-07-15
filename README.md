@@ -3,46 +3,221 @@
 [![build](https://github.com/artineering/ros2pi/actions/workflows/build.yml/badge.svg)](https://github.com/artineering/ros2pi/actions/workflows/build.yml)
 
 Run ROS 2 on a Raspberry Pi — including its GPIO, I2C, SPI and serial hardware —
-without installing ROS on the Pi.
+without installing ROS on the Pi. It works out what your Pi actually is and
+writes the `docker` command for you, so your nodes don't need `--privileged`.
 
-> **Status: early, but the core works.**
->
-> Building and running ROS 2 packages works today, and has been verified on a
-> real Pi 4. `ros2pi check` diagnoses the Pi and tells you how to fix what it
-> finds. Hardware access works for GPIO and is unverified for everything else.
->
-> There are no releases yet, and nobody but the author has run this. See
-> [Status](#status) for exactly what is proven and what is not.
+> **Early, but the core works.** Building and running ROS 2 packages is verified
+> on a real Pi 4, and `ros2pi check` tells you what your Pi needs and how to fix
+> it. There are no releases yet, and it has only ever run on one person's
+> hardware — see [Status](#status) for what is proven and what is not.
 
-## Why this exists
+## Requirements
 
-Running ROS 2 on a Pi means running it in a container. That is not a workaround —
-it is the upstream recommendation. Raspberry Pi OS is Debian, which
-[REP 2000](https://reps.openrobotics.org/rep-2000/) rates **Tier 3** ("community
-reports indicate that the release is functional. The development team does not
-run the unit test suite or perform any other tests"). `arm64` Ubuntu containers
-are **Tier 1**. ROS 2's own installation guide for the Raspberry Pi says as much.
+- A Raspberry Pi 3, 4, 5, Zero 2 W, or CM3/4/5
+- **64-bit** Raspberry Pi OS (Debian 12 or 13)
+- Docker
+- Go 1.25+ to build from source. On Debian 13, `sudo apt install golang-go` gives
+  1.24 and Go fetches the 1.25 toolchain it needs by itself — nothing else to do.
+  Debian 12's `apt` Go is 1.19, too old to do that (the mechanism needs 1.21+),
+  so take Go from [go.dev/dl](https://go.dev/dl/) or `bookworm-backports`.
 
-So you reach for Docker, and then you hit the real problem: the container needs
-to be told about your Pi, and getting that wrong fails in ways that actively
-mislead you.
+<details>
+<summary><b>Why 64-bit only</b></summary>
 
-- Your workspace fills with **root-owned files** you can't edit, because the ROS
-  image runs as root and `--user` was omitted.
-- A device is **listed in the container and `open()` still returns EPERM**,
-  because the Pi's `gpio`/`i2c`/`spi` groups are allocated dynamically and don't
-  exist inside the image, so `--group-add gpio` silently grants nothing.
-- `i2cdetect` finds **nothing on a bus that exists**, because `dtparam=i2c_arm`
-  was never enabled — a firmware setting no container can fix.
-- Your code targets `gpiochip4` per a Pi 5 tutorial and breaks, because
-  **kernel 6.6.47 moved it back to `gpiochip0`**.
+32-bit Raspberry Pi OS cannot run ROS 2 in a container, regardless of this tool:
 
-The usual advice is to paste `--privileged` and move on. That works, and it means
-your robot's nodes run with full access to the host.
+- The official ROS 2 images publish **`amd64` and `arm64` only**. There is no
+  `armv7` manifest. Docker Hub's `arm32v7/ros` says so itself: *"WARNING: THIS
+  IMAGE IS NOT SUPPORTED ON THE arm32v7 ARCHITECTURE"*.
+- **Docker Engine v29 dropped `armhf` packages for Raspberry Pi OS.** 32-bit
+  Trixie isn't listed on Docker's install page at all.
+- Per REP 2000, Debian `arm32` is Tier 3 and source-build only.
 
-ros2pi's plan is to probe the host, work out what is actually true about *your*
-Pi, and construct the right `docker` invocation — including the fine-grained
-device and group flags that make `--privileged` unnecessary.
+If you're on 32-bit Pi OS and your board is a Pi 3 or newer, reflashing with the
+64-bit image is the fix. Pi 1 and Pi Zero/Zero W are ARMv6 and cannot run 64-bit
+at all.
+
+</details>
+
+## Try it
+
+There are no releases yet. Build from source:
+
+```bash
+git clone https://github.com/artineering/ros2pi.git
+cd ros2pi
+go build -o ~/.local/bin/ros2pi ./cmd/ros2pi
+```
+
+If `ros2pi` isn't found afterwards, `~/.local/bin` isn't on your `PATH` — add it,
+or run the binary by its full path.
+
+Then make a workspace and run a node in it:
+
+```bash
+mkdir -p ~/my_project && cd ~/my_project
+ros2pi init
+
+ros2pi pkg create --build-type ament_python --node-name my_node my_pkg
+ros2pi build
+ros2pi run my_pkg my_node        # -> Hi from my_pkg.
+```
+
+The first run pulls `ros:jazzy` (about 1.3 GB) and takes a few minutes. After
+that the container stays up, so commands are quick.
+
+## How you work
+
+If you already know ROS 2, the fastest way to explain ros2pi is to put the two
+side by side. Same project, same result:
+
+<table>
+<tr>
+<th>Plain ROS 2, on a workstation</th>
+<th>ros2pi, on the Pi</th>
+</tr>
+<tr>
+<td>
+
+```bash
+# needs ROS 2 installed on the host
+
+mkdir ~/ws && cd ~/ws
+mkdir src
+source /opt/ros/jazzy/setup.bash
+
+ros2 pkg create --build-type ament_python \
+  --node-name my_node my_pkg \
+  --destination-directory src
+# without that flag it writes ./my_pkg,
+# and colcon builds it anyway
+
+# declare deps in package.xml, then:
+sudo rosdep init      # first time only
+rosdep update
+rosdep install --from-paths src \
+  --ignore-src -y
+# apt-installs onto the host, for good
+
+colcon build --symlink-install
+source install/setup.bash
+
+ros2 run my_pkg my_node
+# edit a .py, run again: no rebuild
+```
+
+</td>
+<td>
+
+```bash
+# needs only Docker on the Pi
+
+mkdir ~/ws && cd ~/ws
+ros2pi init
+# creates src/ and ros2pi.toml
+
+ros2pi pkg create --build-type ament_python \
+  --node-name my_node my_pkg
+
+# --destination-directory src is added
+# for you
+
+# declare deps in package.xml, then:
+ros2pi image build
+
+# the same rosdep install, but inside a
+# docker build -- nothing lands on the Pi
+
+ros2pi build
+# --symlink-install is the default
+
+ros2pi run my_pkg my_node
+# edit a .py, run again: no rebuild
+```
+
+</td>
+</tr>
+</table>
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `ros2pi init` | create a workspace here — writes `ros2pi.toml`, `src/`, `.gitignore` |
+| `ros2pi build` | run `colcon build` in the container |
+| `ros2pi image build` | bake `package.xml` dependencies into an image |
+| `ros2pi check` | diagnose this Pi and the workspace |
+| `ros2pi up` / `down` | start / stop the workspace container |
+| `ros2pi shell` | open a shell in the container |
+| anything else | passed to `ros2` inside the container |
+
+You rarely need `up` — `build`, `run` and `shell` start the container themselves.
+`down` stops it; otherwise it stays running, which is what keeps commands quick.
+`shell` puts you inside with ROS and your workspace already sourced, which is the
+place to run `apt` or poke at a device by hand.
+
+Your workspace is bind-mounted at `/ros2_ws` and the container runs as *you*, not
+root, so everything under `src/` stays editable from your normal editor. Nothing
+you write lives inside the container.
+
+Flags go before the command; everything after it belongs to `ros2`.
+
+| Flag | |
+|---|---|
+| `--dry-run` | print the `docker` command that would run, and stop |
+| `-v`, `--verbose` | print each `docker` command as it runs |
+| `-C DIR`, `--workspace DIR` | act on a workspace other than the one in `.` |
+| `--root` | run as root in the container (`apt`, `rosdep`) |
+| `--recreate` | recreate the container even if it is already running |
+
+### Adding dependencies
+
+Declare them in `package.xml` as usual, then:
+
+```bash
+ros2pi image build
+```
+
+That reads every `package.xml` under `src/`, lets rosdep resolve them, and bakes
+them into an image for this workspace. This avoids losing your dependencies when
+the container is recreated, which is what happens if you install them into a
+running container instead.
+
+Only the `package.xml` files go into the image layer, not your source. So editing
+your nodes doesn't reinstall dependencies, and changing a dependency does.
+
+### When something is wrong
+
+```bash
+ros2pi check
+```
+
+It reports on your Pi and, for anything broken, tells you what to run. It works
+without a workspace and without a working Docker, which is when you need it most.
+
+```
+Hardware
+  ok    gpio chip   gpiochip0 [pinctrl-bcm2711] 58 lines, via ioctl
+  FAIL  i2c         not enabled
+        the header's controller is /soc/i2c@7e804000, per the device-tree alias
+        it has no live bus, so the kernel never brought it up
+        dtparam=i2c_arm is unset in /boot/firmware/config.txt
+
+        Note: /dev/i2c-0, /dev/i2c-10, /dev/i2c-20 exist, but they are HDMI/DDC
+        and camera buses, not the header. `ls /dev/i2c-*` looking healthy means
+        nothing.
+        fix: enable it:
+              sudo raspi-config nonint do_i2c 0
+              sudo reboot
+  ok    groups      mapped
+        gpio     -> --group-add 986 (numeric: not in the ROS image)
+        dialout  -> --group-add dialout (by name: 20 matches the image)
+```
+
+`--json` for scripts, `--explain <id>` for one check, `--strict` to fail on
+warnings too. `--dump-facts` still prints the raw JSON, which is what to attach
+to a bug report — it describes your hardware, including your local username, so
+read it before you post it.
 
 ## Status
 
@@ -52,10 +227,10 @@ device and group flags that make `--privileged` unnecessary.
 | `init` / `up` / `down` / `build` / `shell` | **works** — verified on a Pi 4 |
 | Passing commands to `ros2` | **works** — verified on a Pi 4 |
 | GPIO access | **works** — see below for exactly what that means |
-| I2C / SPI | code exists; the *refusal* path is verified, the working path is not |
-| UART / USB serial | code exists, never run |
 | `ros2pi check` report | **works** — readable diagnosis with a fix for every problem |
 | `ros2pi image build` | **works** — bakes package.xml deps into an image so they survive |
+| I2C / SPI | code exists; the *refusal* path is verified, the working path is not |
+| UART / USB serial | code exists, never run |
 | Camera | not started |
 | Releases / install script | not started |
 
@@ -81,143 +256,46 @@ What has **not** been proven: actually toggling a pin. Nothing has been wired to
 this Pi. If you have an LED and five minutes, that is the single most useful
 thing you could contribute.
 
-### What is not proven at all
+## Why this exists
 
-- **No Pi 5 has ever run this.** Pi 5 support is written from documentation and
-  tested against synthetic fixtures. It may be wrong.
-- **I2C and SPI are disabled on the author's Pi**, so only the "it's not enabled,
-  here's how to fix it" path has been exercised — never the working one.
-- **Nobody else has run this.** Every "verified" above means verified on one
-  Raspberry Pi 4 Model B Rev 1.5, running Debian 13, by one person.
+Running ROS 2 on a Pi means running it in a container. That is not a workaround —
+it is the upstream recommendation, because Raspberry Pi OS is Debian (a Tier 3
+ROS platform) while `arm64` Ubuntu containers are Tier 1.
 
-## Requirements
+The hard part is telling the container about your Pi, and getting it wrong fails
+in ways that actively mislead you: root-owned files you can't edit, devices that
+are listed in the container but refuse to open, buses that look healthy but were
+never enabled. The usual advice is to paste `--privileged` and move on. It works,
+but it gives every node full access to the host, so any bug in any node can reach
+the whole machine.
 
-- A Raspberry Pi 3, 4, 5, Zero 2 W, or CM3/4/5
-- **64-bit** Raspberry Pi OS (Debian 12 or 13)
-- Docker
+ros2pi probes the host, works out what is actually true about *your* Pi, and
+constructs the right `docker` invocation — including the fine-grained device and
+group flags that make `--privileged` unnecessary.
 
-### arm64 only — and that is not our choice
+<details>
+<summary><b>The specifics, if you've hit this before</b></summary>
 
-32-bit Raspberry Pi OS cannot run ROS 2 in a container, regardless of this tool:
+[REP 2000](https://reps.openrobotics.org/rep-2000/) rates Debian **Tier 3**
+("community reports indicate that the release is functional. The development team
+does not run the unit test suite or perform any other tests"). `arm64` Ubuntu
+containers are **Tier 1**. ROS 2's own installation guide for the Raspberry Pi
+says as much.
 
-- The official ROS 2 images publish **`amd64` and `arm64` only**. There is no
-  `armv7` manifest. Docker Hub's `arm32v7/ros` says so itself: *"WARNING: THIS
-  IMAGE IS NOT SUPPORTED ON THE arm32v7 ARCHITECTURE"*.
-- **Docker Engine v29 dropped `armhf` packages for Raspberry Pi OS.** 32-bit
-  Trixie isn't listed on Docker's install page at all.
-- Per REP 2000, Debian `arm32` is Tier 3 and source-build only.
+The four ways the container-flags problem bites:
 
-If you're on 32-bit Pi OS and your board is a Pi 3 or newer, reflashing with the
-64-bit image is the fix. Pi 1 and Pi Zero/Zero W are ARMv6 and cannot run 64-bit
-at all.
+- Your workspace fills with **root-owned files** you can't edit, because the ROS
+  image runs as root and `--user` was omitted.
+- A device is **listed in the container and still refused when you open it**
+  (`EPERM`), because the Pi's `gpio`/`i2c`/`spi` groups are allocated dynamically
+  and don't exist inside the image, so `--group-add gpio` silently grants
+  nothing.
+- `i2cdetect` finds **nothing on a bus that exists**, because `dtparam=i2c_arm`
+  was never enabled — a firmware setting no container can fix.
+- Your code targets `gpiochip4` per a Pi 5 tutorial and breaks, because
+  **kernel 6.6.47 moved it back to `gpiochip0`**.
 
-## Try it
-
-There are no releases yet. Build from source:
-
-```bash
-git clone https://github.com/artineering/ros2pi.git
-cd ros2pi
-go build -o ~/.local/bin/ros2pi ./cmd/ros2pi
-```
-
-Needs Go 1.25+. If your `apt` Go is older, the Go toolchain downloads the right
-version automatically — no action needed.
-
-Then, in a new or existing workspace:
-
-```bash
-mkdir -p ~/my_project && cd ~/my_project
-ros2pi init
-
-ros2pi pkg create --build-type ament_python --node-name my_node my_pkg
-ros2pi build
-ros2pi run my_pkg my_node        # -> Hi from my_pkg.
-```
-
-Anything ROS 2 understands is passed straight through, so the tool you already
-know still works:
-
-```bash
-ros2pi topic list
-ros2pi launch my_pkg my_launch.py
-ros2pi node info /my_node
-```
-
-The first run pulls `ros:jazzy` (about 1.3 GB) and takes a few minutes. After
-that the container stays up, so commands are quick.
-
-To see what it would do without doing it, add `--dry-run`.
-
-### When something is wrong
-
-```bash
-ros2pi check
-```
-
-It reports on your Pi and, for anything broken, tells you what to run. It needs
-neither a workspace nor a working Docker — the moment you most need it is the
-moment nothing is set up.
-
-```
-Hardware
-  ok    gpio chip   gpiochip0 [pinctrl-bcm2711] 58 lines, via ioctl
-  FAIL  i2c         not enabled
-        the header's controller is /soc/i2c@7e804000, per the device-tree alias
-        it has no live bus, so the kernel never brought it up
-        dtparam=i2c_arm is unset in /boot/firmware/config.txt
-
-        Note: /dev/i2c-0, /dev/i2c-10, /dev/i2c-20 exist, but they are HDMI/DDC
-        and camera buses, not the header. `ls /dev/i2c-*` looking healthy means
-        nothing.
-        fix: enable it:
-              sudo raspi-config nonint do_i2c 0
-              sudo reboot
-  ok    groups      mapped
-        gpio     -> --group-add 986 (numeric: not in the ROS image)
-        dialout  -> --group-add dialout (by name: 20 matches the image)
-```
-
-`--json` for scripts, `--explain <id>` for one check, `--strict` to fail on
-warnings too. `--dump-facts` still prints the raw JSON, which is what to attach
-to a bug report.
-
-### Dependencies
-
-Declare them in `package.xml` as usual, then:
-
-```bash
-ros2pi image build
-```
-
-That reads every `package.xml` under `src/`, lets rosdep resolve them, and bakes
-them into an image for this workspace. Installing them into a running container
-instead would work right up until the container was recreated, and then quietly
-lose them.
-
-## Help wanted: send us your Pi
-
-The hardest problem with a tool like this is that we can only test it on the
-hardware we own. So `--dump-facts` exists to fix that:
-
-```bash
-./ros2pi check --dump-facts > my-pi.json
-```
-
-**Please open an issue and attach that file** — especially if you have a **Pi 5**,
-a Compute Module, or anything unusual. Every fixture we receive becomes a
-permanent regression test, and a maintainer can replay your exact host:
-
-```bash
-ROS2PI_FACTS=my-pi.json ros2pi check --dump-facts
-```
-
-It contains a hardware description — model, kernel, device nodes, group IDs, your
-local username. No keys or secrets. Read it before you post it.
-
-**Pi 5 support is written but has never run on a real Pi 5.** It is modelled from
-documentation and tested against synthetic fixtures. If you have one, you are the
-person who can tell us whether we got it right.
+</details>
 
 ## Design notes
 
