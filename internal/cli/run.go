@@ -18,6 +18,7 @@ import (
 // App holds everything a command needs.
 type App struct {
 	Version string
+	Stdin   *os.File
 	Stdout  *os.File
 	Stderr  *os.File
 

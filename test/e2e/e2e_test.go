@@ -298,3 +298,63 @@ func TestOverlayIsSourcedInEveryTerminalNotJustBuild(t *testing.T) {
 		t.Error("both packages should be on the path in a fresh exec")
 	}
 }
+
+// A workspace on a distro other than the default must work identically.
+//
+// This is the test that would have caught the bug: everything was developed
+// against ros:jazzy, which happens to ship an `ubuntu` user at uid 1000.
+// ros:humble has nobody at 1000, so running as that uid left getpwuid()
+// failing -- `ros2 pkg create` died with "KeyError: getpwuid(): uid not found"
+// -- and HOME=/ , which is not writable. jazzy worked by luck, and nothing
+// noticed until a second distro was tried.
+//
+// Slow: it pulls a second ~1.3 GB image.
+func TestHumbleWorkspaceWorksLikeTheDefault(t *testing.T) {
+	requireDocker(t)
+	if testing.Short() {
+		t.Skip("pulls ros:humble")
+	}
+
+	dir := t.TempDir()
+	run(t, dir, "init", "--distro", "humble")
+	t.Cleanup(func() {
+		out, _ := exec.Command("docker", "ps", "-aq",
+			"--filter", "label=io.ros2pi.workspace="+dir).Output()
+		for _, id := range strings.Fields(string(out)) {
+			_ = exec.Command("docker", "rm", "-f", id).Run()
+		}
+	})
+
+	// The command that used to crash on an image with no user at our uid.
+	run(t, dir, "pkg", "create", "--build-type", "ament_python",
+		"--node-name", "my_node", "my_pkg")
+
+	if out := run(t, dir, "build"); !strings.Contains(out, "1 package finished") {
+		t.Fatalf("build failed on humble:\n%s", out)
+	}
+	if out := run(t, dir, "run", "my_pkg", "my_node"); !strings.Contains(out, "Hi from my_pkg") {
+		t.Fatalf("the node did not run on humble:\n%s", out)
+	}
+
+	// The right ROS is actually running, and the identity the image lacks is
+	// supplied rather than left broken.
+	env := run(t, dir, "shell", "-c", "echo $ROS_DISTRO $USER $HOME")
+	if !strings.Contains(env, "humble") {
+		t.Errorf("expected humble, got: %s", env)
+	}
+	if strings.Contains(env, "humble  ") { // USER empty between two spaces
+		t.Errorf("USER is empty; tools that ask who they are will crash: %s", env)
+	}
+
+	// And the whole point of --user still holds on this image.
+	if _, err := os.Stat(filepath.Join(dir, "install")); err != nil {
+		t.Fatalf("no install/ after build: %v", err)
+	}
+	f, err := os.CreateTemp(filepath.Join(dir, "install"), ".owned-*")
+	if err != nil {
+		t.Errorf("build output on humble is not writable by the invoking user: %v", err)
+	} else {
+		f.Close()
+		os.Remove(f.Name())
+	}
+}

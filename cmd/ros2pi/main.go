@@ -25,6 +25,7 @@ func main() {
 
 	app := cli.App{
 		Version: version,
+		Stdin:   os.Stdin,
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
 		IsTTY:   isTTY,

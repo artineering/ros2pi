@@ -256,8 +256,31 @@ func normalizeArch(a string) string {
 	return a
 }
 
+// ContainerHome is HOME inside the container.
+//
+// /tmp is chosen because it is the one directory that exists and is writable in
+// every ROS image, whatever user we run as. See addIdentity for why we cannot
+// rely on the image's own home directory.
+const ContainerHome = "/tmp"
+
 // addIdentity runs the container as the invoking user, so files written into
-// the bind mount stay editable from the host.
+// the bind mount stay editable from the host -- and then supplies the identity
+// that running as that user would otherwise be missing.
+//
+// The uid we pass usually does not exist inside the image. ros:jazzy (Ubuntu
+// 24.04) happens to ship an `ubuntu` user at uid 1000, which is why this went
+// unnoticed for so long; ros:humble (Ubuntu 22.04) has nobody at 1000 at all.
+// On humble that left:
+//
+//   - getpwuid() failing, so `ros2 pkg create` died with
+//     "KeyError: getpwuid(): uid not found: 1000"
+//   - HOME=/ , which is not writable, breaking anything that touches ~/.ros
+//
+// Rather than depend on what an image happens to contain, the identity is
+// supplied explicitly: USER and LOGNAME answer "who am I" (Python's
+// getpass.getuser reads the environment before /etc/passwd), and HOME points
+// somewhere guaranteed writable. This behaves identically on every image, which
+// is the point -- the alternative is a tool that works on one distro by luck.
 func addIdentity(b *builder, f hostfacts.HostFacts) error {
 	id := f.Identity
 	if id.UID == 0 {
@@ -271,6 +294,17 @@ func addIdentity(b *builder, f hostfacts.HostFacts) error {
 	}
 	b.add("run as the invoking user so bind-mounted files stay editable",
 		"facts.Identity", "--user", fmt.Sprintf("%d:%d", id.UID, id.GID))
+
+	name := id.Username
+	if name == "" {
+		name = "ros2pi"
+	}
+	b.add("this uid may not exist in the image; tools ask the environment first",
+		"facts.Identity.Username", "-e", "USER="+name)
+	b.add("same, for tools that read LOGNAME", "facts.Identity.Username",
+		"-e", "LOGNAME="+name)
+	b.add("a writable HOME: the image may give this uid no home, or an unwritable one",
+		"", "-e", "HOME="+ContainerHome)
 	return nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/artineering/ros2pi/internal/check"
+	"github.com/artineering/ros2pi/internal/distro"
 
 	"github.com/artineering/ros2pi/internal/config"
 	"github.com/artineering/ros2pi/internal/errs"
@@ -16,10 +17,15 @@ import (
 
 // cmdInit scaffolds a workspace.
 func (a App) cmdInit(in Invocation) error {
+	flagDistro, rest, err := takeDistroFlag(in.OwnArgs)
+	if err != nil {
+		return err
+	}
+
 	dir := in.Globals.Workspace
 	if dir == "" {
-		if len(in.OwnArgs) > 0 && !strings.HasPrefix(in.OwnArgs[0], "-") {
-			dir = in.OwnArgs[0]
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			dir = rest[0]
 		} else {
 			wd, err := os.Getwd()
 			if err != nil {
@@ -43,7 +49,15 @@ func (a App) cmdInit(in Invocation) error {
 		return err
 	}
 
+	chosen, err := a.pickDistro(flagDistro, a.Stdin, a.IsTTY())
+	if err != nil {
+		return err
+	}
+
 	cfg := config.Default()
+	cfg.ROS.Distro = chosen
+	cfg.ROS.Image = distro.Image(chosen)
+
 	body, err := config.Marshal(cfg)
 	if err != nil {
 		return err
@@ -60,7 +74,7 @@ func (a App) cmdInit(in Invocation) error {
 		_ = os.WriteFile(gi, []byte("build/\ninstall/\nlog/\n"), 0o644)
 	}
 
-	fmt.Fprintf(a.Stdout, "created %s\n", path)
+	fmt.Fprintf(a.Stdout, "\ncreated %s (ROS 2 %s, from %s)\n", path, chosen, cfg.ROS.Image)
 	fmt.Fprintf(a.Stdout, "\nNext:\n")
 	fmt.Fprintf(a.Stdout, "  ros2pi pkg create --build-type ament_python --node-name my_node \\\n")
 	fmt.Fprintf(a.Stdout, "        --destination-directory src my_pkg\n")
@@ -237,4 +251,28 @@ flags (these go BEFORE the command; everything after it goes to ros2):
       --                pass everything after this to ros2 verbatim
 
 `)
+}
+
+// takeDistroFlag pulls --distro out of init's arguments.
+//
+// It is parsed here rather than as a global because it only means anything to
+// `init`: on any other command the distro comes from ros2pi.toml, and a flag
+// that silently did nothing would be worse than no flag.
+func takeDistroFlag(args []string) (value string, rest []string, err error) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--distro":
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf("--distro needs a value, e.g. --distro jazzy")
+			}
+			value = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--distro="):
+			value = strings.TrimPrefix(a, "--distro=")
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return value, rest, nil
 }
