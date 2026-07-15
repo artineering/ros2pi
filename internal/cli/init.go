@@ -76,9 +76,11 @@ func (a App) cmdInit(in Invocation) error {
 	}
 
 	fmt.Fprintf(a.Stdout, "\ncreated %s (ROS 2 %s, from %s)\n", path, chosen, cfg.ROS.Image)
+	// Deliberately NOT --destination-directory: ros2pi adds it. Printing it
+	// here taught people to type a flag the tool supplies, which is both noise
+	// and a lie about what is required.
 	fmt.Fprintf(a.Stdout, "\nNext:\n")
-	fmt.Fprintf(a.Stdout, "  ros2pi pkg create --build-type ament_python --node-name my_node \\\n")
-	fmt.Fprintf(a.Stdout, "        --destination-directory src my_pkg\n")
+	fmt.Fprintf(a.Stdout, "  ros2pi pkg create --build-type ament_python --node-name my_node my_pkg\n")
 	fmt.Fprintf(a.Stdout, "  ros2pi build\n")
 	fmt.Fprintf(a.Stdout, "  ros2pi run my_pkg my_node\n")
 	return nil

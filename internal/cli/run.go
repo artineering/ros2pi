@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -18,9 +19,14 @@ import (
 // App holds everything a command needs.
 type App struct {
 	Version string
-	Stdin   *os.File
-	Stdout  *os.File
-	Stderr  *os.File
+
+	// Streams are interfaces rather than *os.File so that what ros2pi SAYS can
+	// be asserted on. That matters: the `init` instructions told users to pass
+	// --destination-directory long after ros2pi started adding it for them, and
+	// nothing could catch it because nothing could read the output.
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 
 	// IsTTY reports whether both stdin and stdout are terminals. A TTY is
 	// allocated only then: doing it when stdout is a pipe injects control
