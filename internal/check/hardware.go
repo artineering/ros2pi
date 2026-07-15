@@ -8,13 +8,14 @@ import (
 	"github.com/artineering/ros2pi/internal/config"
 	"github.com/artineering/ros2pi/internal/errs"
 	"github.com/artineering/ros2pi/internal/hostfacts"
+	"github.com/artineering/ros2pi/internal/imagefacts"
 )
 
 func workspaceChecks() []Check {
 	return []Check{
 		{
 			ID: "ws.root", Section: "Workspace", Title: "root",
-			Run: func(_ hostfacts.HostFacts, cfg *config.Config) Result {
+			Run: func(_ hostfacts.HostFacts, cfg *config.Config, _ *imagefacts.Facts) Result {
 				if cfg == nil {
 					// Not an error: `ros2pi check` is meant to run anywhere,
 					// especially before there is a workspace to check.
@@ -25,7 +26,7 @@ func workspaceChecks() []Check {
 		},
 		{
 			ID: "ws.ros", Section: "Workspace", Title: "ros",
-			Run: func(_ hostfacts.HostFacts, cfg *config.Config) Result {
+			Run: func(_ hostfacts.HostFacts, cfg *config.Config, _ *imagefacts.Facts) Result {
 				if cfg == nil {
 					return Result{Status: Skip}
 				}
@@ -34,7 +35,7 @@ func workspaceChecks() []Check {
 		},
 		{
 			ID: "ws.domain", Section: "Workspace", Title: "domain",
-			Run: func(_ hostfacts.HostFacts, cfg *config.Config) Result {
+			Run: func(_ hostfacts.HostFacts, cfg *config.Config, _ *imagefacts.Facts) Result {
 				if cfg == nil {
 					return Result{Status: Skip}
 				}
@@ -58,7 +59,7 @@ func hardwareChecks() []Check {
 	return []Check{
 		{
 			ID: "hw.gpiochip", Section: "Hardware", Title: "gpio chip",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				c, found := f.HeaderChip()
 				if !found {
 					var seen []string
@@ -79,7 +80,7 @@ func hardwareChecks() []Check {
 		},
 		{
 			ID: "hw.gpiomem", Section: "Hardware", Title: "gpio mem",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				if p := joinPaths(f.GPIOMem); p != "" {
 					return ok(p)
 				}
@@ -93,7 +94,7 @@ func hardwareChecks() []Check {
 			// The check that no other tool makes, and the one this project was
 			// worth building for.
 			ID: "hw.i2c", Section: "Hardware", Title: "i2c",
-			Run: func(f hostfacts.HostFacts, cfg *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, cfg *config.Config, _ *imagefacts.Facts) Result {
 				if bus, live := f.I2CHeaderBus(); live {
 					return ok(fmt.Sprintf("%s (header pins 3/5)", bus.Path))
 				}
@@ -140,7 +141,7 @@ func hardwareChecks() []Check {
 		},
 		{
 			ID: "hw.spi", Section: "Hardware", Title: "spi",
-			Run: func(f hostfacts.HostFacts, cfg *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, cfg *config.Config, _ *imagefacts.Facts) Result {
 				if p := joinPaths(f.SPIDevs); p != "" {
 					return ok(p)
 				}
@@ -162,7 +163,7 @@ func hardwareChecks() []Check {
 		},
 		{
 			ID: "hw.serial", Section: "Hardware", Title: "serial",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				for _, s := range f.Serial {
 					if s.Path == "/dev/serial0" && s.Exists {
 						v := s.Path
@@ -179,7 +180,7 @@ func hardwareChecks() []Check {
 		},
 		{
 			ID: "hw.usbserial", Section: "Hardware", Title: "usb serial",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				if p := joinPaths(f.USBSerial); p != "" {
 					return ok(p)
 				}
@@ -188,7 +189,7 @@ func hardwareChecks() []Check {
 		},
 		{
 			ID: "hw.groups", Section: "Hardware", Title: "groups",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				var lines []string
 				var missing []string
 

@@ -19,6 +19,7 @@ import (
 	"github.com/artineering/ros2pi/internal/config"
 	"github.com/artineering/ros2pi/internal/errs"
 	"github.com/artineering/ros2pi/internal/hostfacts"
+	"github.com/artineering/ros2pi/internal/imagefacts"
 )
 
 // Status is a check's verdict.
@@ -54,9 +55,11 @@ type Check struct {
 	ID      string
 	Section string
 	Title   string
-	// Run is pure. cfg is nil when not inside a workspace: `ros2pi check` must
-	// work anywhere, because a user whose setup is broken has nowhere else to go.
-	Run func(f hostfacts.HostFacts, cfg *config.Config) Result
+	// Run is pure. cfg is nil when not inside a workspace, and img is nil when
+	// there is no workspace or docker could not be asked: `ros2pi check` must
+	// work anywhere, because a user whose setup is broken has nowhere else to
+	// go. A check handed nil simply skips.
+	Run func(f hostfacts.HostFacts, cfg *config.Config, img *imagefacts.Facts) Result
 }
 
 // Report is a whole run.
@@ -77,13 +80,13 @@ type Entry struct {
 }
 
 // Run executes every check.
-func Run(f hostfacts.HostFacts, cfg *config.Config) Report {
+func Run(f hostfacts.HostFacts, cfg *config.Config, img *imagefacts.Facts) Report {
 	var rep Report
 	order := []string{}
 	bySection := map[string][]Entry{}
 
 	for _, c := range Registry() {
-		r := c.Run(f, cfg)
+		r := c.Run(f, cfg, img)
 		if r.Status == Skip {
 			continue
 		}
@@ -131,6 +134,7 @@ func Registry() []Check {
 	var all []Check
 	all = append(all, hostChecks()...)
 	all = append(all, dockerChecks()...)
+	all = append(all, imageChecks()...)
 	all = append(all, workspaceChecks()...)
 	all = append(all, hardwareChecks()...)
 	return all

@@ -77,9 +77,10 @@ func TestCheckStaysPure(t *testing.T) {
 	}
 	allowed := map[string]bool{
 		"encoding/json": true, "fmt": true, "io": true, "sort": true, "strings": true,
-		"github.com/artineering/ros2pi/internal/config":    true,
-		"github.com/artineering/ros2pi/internal/errs":      true,
-		"github.com/artineering/ros2pi/internal/hostfacts": true,
+		"github.com/artineering/ros2pi/internal/config":     true,
+		"github.com/artineering/ros2pi/internal/errs":       true,
+		"github.com/artineering/ros2pi/internal/hostfacts":  true,
+		"github.com/artineering/ros2pi/internal/imagefacts": true,
 	}
 	for _, imp := range pkg.Imports {
 		if why, bad := forbidden[imp]; bad {

@@ -6,13 +6,14 @@ import (
 	"github.com/artineering/ros2pi/internal/config"
 	"github.com/artineering/ros2pi/internal/errs"
 	"github.com/artineering/ros2pi/internal/hostfacts"
+	"github.com/artineering/ros2pi/internal/imagefacts"
 )
 
 func dockerChecks() []Check {
 	return []Check{
 		{
 			ID: "docker.installed", Section: "Docker", Title: "installed",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				if f.Docker.Problem == hostfacts.DockerAbsent {
 					return fail("not found",
 						"ros2pi runs ROS 2 in a container, so docker is required").
@@ -31,7 +32,7 @@ func dockerChecks() []Check {
 		},
 		{
 			ID: "docker.daemon", Section: "Docker", Title: "daemon",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				switch f.Docker.Problem {
 				case hostfacts.DockerAbsent:
 					return Result{Status: Skip}
@@ -61,7 +62,7 @@ func dockerChecks() []Check {
 			// The check this whole tool is proudest of. Two states produce
 			// IDENTICAL output from docker and need opposite fixes.
 			ID: "docker.group", Section: "Docker", Title: "group",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				if f.Docker.Problem == hostfacts.DockerAbsent {
 					return Result{Status: Skip}
 				}
@@ -98,7 +99,7 @@ func dockerChecks() []Check {
 		},
 		{
 			ID: "docker.cgroup", Section: "Docker", Title: "cgroup",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				if !f.Docker.Usable() {
 					return Result{Status: Skip}
 				}

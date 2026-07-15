@@ -7,13 +7,14 @@ import (
 	"github.com/artineering/ros2pi/internal/config"
 	"github.com/artineering/ros2pi/internal/errs"
 	"github.com/artineering/ros2pi/internal/hostfacts"
+	"github.com/artineering/ros2pi/internal/imagefacts"
 )
 
 func hostChecks() []Check {
 	return []Check{
 		{
 			ID: "host.model", Section: "Host", Title: "model",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				if f.Model.Raw == "" {
 					return warn("unknown", "could not read /proc/device-tree/model")
 				}
@@ -22,7 +23,7 @@ func hostChecks() []Check {
 		},
 		{
 			ID: "host.family", Section: "Host", Title: "family",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				if f.Model.Family == hostfacts.FamilyUnknown {
 					return fail("unknown",
 						"no GPIO chip carried a label this build recognises",
@@ -47,7 +48,7 @@ func hostChecks() []Check {
 		},
 		{
 			ID: "host.arch", Section: "Host", Title: "arch",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				views := [][2]string{
 					{"kernel", f.Arch.Machine},
 					{"userland", f.Arch.Dpkg},
@@ -87,7 +88,7 @@ func hostChecks() []Check {
 		},
 		{
 			ID: "host.os", Section: "Host", Title: "os",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				if f.OS.Pretty == "" {
 					return warn("unknown", "could not read /etc/os-release")
 				}
@@ -96,13 +97,13 @@ func hostChecks() []Check {
 		},
 		{
 			ID: "host.kernel", Section: "Host", Title: "kernel",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				return ok(f.Kernel.Release)
 			},
 		},
 		{
 			ID: "host.user", Section: "Host", Title: "user",
-			Run: func(f hostfacts.HostFacts, _ *config.Config) Result {
+			Run: func(f hostfacts.HostFacts, _ *config.Config, _ *imagefacts.Facts) Result {
 				id := f.Identity
 				if id.UID == 0 {
 					return fail("root",

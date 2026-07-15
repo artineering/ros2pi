@@ -13,6 +13,7 @@ import (
 	"github.com/artineering/ros2pi/internal/config"
 	"github.com/artineering/ros2pi/internal/errs"
 	"github.com/artineering/ros2pi/internal/hostfacts"
+	"github.com/artineering/ros2pi/internal/imagefacts"
 )
 
 // cmdInit scaffolds a workspace.
@@ -140,10 +141,15 @@ func (a App) cmdCheck(ctx context.Context, in Invocation) (int, error) {
 	cfg := a.tryConfig(in)
 
 	if explain != "" {
-		return a.explain(explain, f, cfg)
+		return a.explain(explain, f, cfg, a.tryImage(ctx, f, cfg))
 	}
 
-	rep := check.Run(f, cfg)
+	// The image is probed only when there is a workspace to name one, and a
+	// failure to ask is not fatal: `ros2pi check` must still report on a Pi
+	// whose docker is broken, which is exactly when it is needed most.
+	img := a.tryImage(ctx, f, cfg)
+
+	rep := check.Run(f, cfg, img)
 
 	if asJSON {
 		if err := check.RenderJSON(a.Stdout, rep); err != nil {
@@ -157,6 +163,25 @@ func (a App) cmdCheck(ctx context.Context, in Invocation) (int, error) {
 		return 1, nil
 	}
 	return 0, nil
+}
+
+// tryImage asks docker about the workspace's image, and shrugs if it cannot.
+func (a App) tryImage(ctx context.Context, f hostfacts.HostFacts, cfg *config.Config) *imagefacts.Facts {
+	if cfg == nil || !f.Docker.Usable() {
+		return nil
+	}
+	img := imagefacts.Probe(ctx, hostRunner{hostfacts.NewOSHost()}, cfg.ROS.Image, f.Arch.Machine)
+	return &img
+}
+
+// hostRunner adapts a HostIO to what imagefacts needs. The two packages agree
+// on the shape of a command result but not on the type, so that neither has to
+// import the other.
+type hostRunner struct{ io hostfacts.HostIO }
+
+func (h hostRunner) Exec(ctx context.Context, name string, args ...string) (imagefacts.Result, error) {
+	r, err := h.io.Exec(ctx, name, args...)
+	return imagefacts.Result{Stdout: r.Stdout, Stderr: r.Stderr, Code: r.Code}, err
 }
 
 // tryConfig loads the workspace config if there is one, and shrugs if not.
@@ -178,12 +203,12 @@ func (a App) tryConfig(in Invocation) *config.Config {
 
 // explain prints one check's verdict on its own, for when the report says
 // something surprising and the user wants to know why.
-func (a App) explain(id string, f hostfacts.HostFacts, cfg *config.Config) (int, error) {
+func (a App) explain(id string, f hostfacts.HostFacts, cfg *config.Config, img *imagefacts.Facts) (int, error) {
 	c, found := check.Find(id)
 	if !found {
 		return 2, fmt.Errorf("no check called %q\n  ids: %s", id, strings.Join(check.IDs(), " "))
 	}
-	r := c.Run(f, cfg)
+	r := c.Run(f, cfg, img)
 
 	fmt.Fprintf(a.Stdout, "%s  (%s)\n\n", c.ID, c.Section)
 	fmt.Fprintf(a.Stdout, "  %s  %s  %s\n", r.Status, c.Title, r.Value)

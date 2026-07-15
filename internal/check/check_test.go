@@ -48,7 +48,7 @@ func TestEveryFailureCarriesAFix(t *testing.T) {
 	cfg.Root = "/tmp/ws"
 	cfg.Hardware = config.Hardware{GPIO: true, I2C: true, SPI: true, UART: true}
 
-	rep := Run(f, &cfg)
+	rep := Run(f, &cfg, nil)
 	if rep.Failed == 0 {
 		t.Skip("nothing failed on the reference host; nothing to assert")
 	}
@@ -74,7 +74,7 @@ func TestI2C_DistinguishesDecoyBusesFromTheHeader(t *testing.T) {
 	cfg.Root = "/tmp/ws"
 	cfg.Hardware.I2C = true
 
-	e := find(t, Run(f, &cfg), "hw.i2c")
+	e := find(t, Run(f, &cfg, nil), "hw.i2c")
 	if e.Result.Status != Fail {
 		t.Fatalf("i2c = %v on a Pi with i2c_arm unset, want fail", e.Result.Status)
 	}
@@ -103,7 +103,7 @@ func TestI2C_NotRequestedIsNotAFailure(t *testing.T) {
 	cfg.Root = "/tmp/ws"
 	cfg.Hardware.I2C = false
 
-	if e := find(t, Run(f, &cfg), "hw.i2c"); e.Result.Status == Fail {
+	if e := find(t, Run(f, &cfg, nil), "hw.i2c"); e.Result.Status == Fail {
 		t.Error("i2c reported as a failure when the workspace never asked for it")
 	}
 }
@@ -120,7 +120,7 @@ func TestDockerGroup_StaleSessionSaysNewgrpNotUsermod(t *testing.T) {
 		}
 	}
 
-	e := find(t, Run(f, nil), "docker.group")
+	e := find(t, Run(f, nil, nil), "docker.group")
 	if e.Result.Status != Fail {
 		t.Fatalf("status = %v, want fail", e.Result.Status)
 	}
@@ -137,7 +137,7 @@ func TestDockerGroup_GenuinelyNotAMemberSaysUsermod(t *testing.T) {
 	f := realPi4(t)
 	f.Docker.Problem = hostfacts.DockerPermissionDenied
 
-	e := find(t, Run(f, nil), "docker.group")
+	e := find(t, Run(f, nil, nil), "docker.group")
 	if e.Result.Status != Fail {
 		t.Fatalf("status = %v, want fail", e.Result.Status)
 	}
@@ -152,7 +152,7 @@ func TestArch_CatchesA32BitUserlandUnderA64BitKernel(t *testing.T) {
 	f := realPi4(t)
 	f.Arch.Dpkg = "armhf"
 
-	e := find(t, Run(f, nil), "host.arch")
+	e := find(t, Run(f, nil, nil), "host.arch")
 	if e.Result.Status != Fail {
 		t.Fatalf("status = %v, want fail: this host cannot run ROS 2 at all", e.Result.Status)
 	}
@@ -175,7 +175,7 @@ func TestPi5_IsFlaggedAsUntested(t *testing.T) {
 		}
 	}
 
-	e := find(t, Run(f, nil), "host.family")
+	e := find(t, Run(f, nil, nil), "host.family")
 	if e.Result.Status != Warn {
 		t.Errorf("status = %v, want warn on a Pi 5", e.Result.Status)
 	}
@@ -188,7 +188,7 @@ func TestPi5_IsFlaggedAsUntested(t *testing.T) {
 // nothing is set up yet.
 func TestRun_WorksWithNoWorkspace(t *testing.T) {
 	f := realPi4(t)
-	rep := Run(f, nil) // nil config
+	rep := Run(f, nil, nil) // nil config
 
 	if len(rep.Sections) == 0 {
 		t.Fatal("no report produced without a workspace")
