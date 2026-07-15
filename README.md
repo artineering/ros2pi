@@ -82,24 +82,28 @@ side by side. Same project, same result:
 ```bash
 # needs ROS 2 installed on the host
 
-mkdir -p ~/ws/src && cd ~/ws
+mkdir ~/ws && cd ~/ws
+mkdir src
 source /opt/ros/jazzy/setup.bash
 
 ros2 pkg create --build-type ament_python \
-  --node-name my_node my_pkg
-# writes ./my_pkg, not ./src/my_pkg
+  --node-name my_node my_pkg \
+  --destination-directory src
+# without that flag it writes ./my_pkg,
+# and colcon builds it anyway
 
 # declare deps in package.xml, then:
-sudo rosdep init        # first time only
+sudo rosdep init      # first time only
 rosdep update
 rosdep install --from-paths src \
   --ignore-src -y
-# installs onto the host, for good
+# apt-installs onto the host, for good
 
 colcon build --symlink-install
 source install/setup.bash
 
 ros2 run my_pkg my_node
+# edit a .py, run again: no rebuild
 ```
 
 </td>
@@ -108,29 +112,63 @@ ros2 run my_pkg my_node
 ```bash
 # needs only Docker on the Pi
 
-mkdir -p ~/my_project && cd ~/my_project
+mkdir ~/ws && cd ~/ws
 ros2pi init
+# creates src/ and ros2pi.toml
 
 ros2pi pkg create --build-type ament_python \
   --node-name my_node my_pkg
-# writes ./src/my_pkg
+
+# --destination-directory src is added
+# for you
 
 # declare deps in package.xml, then:
 ros2pi image build
-# runs the same rosdep install, inside
-# an image build -- nothing touches the Pi
 
-
+# the same rosdep install, but inside a
+# docker build -- nothing lands on the Pi
 
 ros2pi build
-
+# --symlink-install is the default
 
 ros2pi run my_pkg my_node
+# edit a .py, run again: no rebuild
 ```
 
 </td>
 </tr>
 </table>
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `ros2pi init` | create a workspace here — writes `ros2pi.toml`, `src/`, `.gitignore` |
+| `ros2pi build` | run `colcon build` in the container |
+| `ros2pi image build` | bake `package.xml` dependencies into an image |
+| `ros2pi check` | diagnose this Pi and the workspace |
+| `ros2pi up` / `down` | start / stop the workspace container |
+| `ros2pi shell` | open a shell in the container |
+| anything else | passed to `ros2` inside the container |
+
+You rarely need `up` — `build`, `run` and `shell` start the container themselves.
+`down` stops it; otherwise it stays running, which is what keeps commands quick.
+`shell` puts you inside with ROS and your workspace already sourced, which is the
+place to run `apt` or poke at a device by hand.
+
+Your workspace is bind-mounted at `/ros2_ws` and the container runs as *you*, not
+root, so everything under `src/` stays editable from your normal editor. Nothing
+you write lives inside the container.
+
+Flags go before the command; everything after it belongs to `ros2`.
+
+| Flag | |
+|---|---|
+| `--dry-run` | print the `docker` command that would run, and stop |
+| `-v`, `--verbose` | print each `docker` command as it runs |
+| `-C DIR`, `--workspace DIR` | act on a workspace other than the one in `.` |
+| `--root` | run as root in the container (`apt`, `rosdep`) |
+| `--recreate` | recreate the container even if it is already running |
 
 ### Adding dependencies
 
